@@ -1,0 +1,14 @@
+.env
+.env.local
+.next/
+node_modules/
+dist/
+coverage/
+*.log
+tmp/
+.DS_Store
+apps/server/bin/
+apps/server/.gocache/
+apps/server/.gomodcache/
+.go-build-cache
+.gocache

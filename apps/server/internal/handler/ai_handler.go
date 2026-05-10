@@ -1,0 +1,50 @@
+package handler
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"portfolio-hub/apps/server/internal/model"
+	"portfolio-hub/apps/server/internal/response"
+	"portfolio-hub/apps/server/internal/service"
+)
+
+func RegisterAIRoutes(router *gin.Engine, aiService *service.AIService) {
+	router.POST("/api/ai/project-summary", projectSummaryStatus(aiService))
+	router.POST("/api/ai/site-summary", siteSummary(aiService))
+}
+
+func projectSummaryStatus(aiService *service.AIService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req model.ProjectSummaryRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		summary, err := aiService.ProjectSummaryStatus(c.Request.Context(), req.RepoName, req.ForceRefresh)
+		if err != nil {
+			response.Error(c, http.StatusBadGateway, err.Error())
+			return
+		}
+		response.OK(c, summary)
+	}
+}
+
+func siteSummary(aiService *service.AIService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req model.SiteSummaryRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		summary, err := aiService.SiteSummary(c.Request.Context(), req.ForceRefresh)
+		if err != nil {
+			response.Error(c, http.StatusBadGateway, err.Error())
+			return
+		}
+		response.OK(c, summary)
+	}
+}
