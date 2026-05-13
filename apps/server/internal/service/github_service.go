@@ -355,6 +355,11 @@ func (s *GitHubService) RefreshLanguages(ctx context.Context) error {
 	return err
 }
 
+func (s *GitHubService) RefreshActivity(ctx context.Context) error {
+	_, err := s.CommitActivity(ctx, true)
+	return err
+}
+
 func (s *GitHubService) listRawRepos(ctx context.Context, force bool) ([]model.GitHubRepo, error) {
 	if s.cfg.GitHubUsername == "" {
 		return nil, errors.New("GITHUB_USERNAME is not configured")

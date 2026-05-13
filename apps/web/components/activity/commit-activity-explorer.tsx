@@ -146,9 +146,10 @@ export function CommitActivityExplorer({ activity, initialDate, initialDetail }:
                 {weeks.flatMap((week, weekIndex) =>
                   normalizedDays(week).map((day, dayIndex) => {
                     const isActive = day.date === activeDate;
+                    const label = `${day.date}: ${day.count} contributions`;
                     return (
                       <motion.button
-                        aria-label={`${day.date}: ${day.count} contributions`}
+                        aria-label={label}
                         className={
                           isActive
                             ? "h-3.5 w-3.5 rounded-[3px] border border-[var(--foreground)] outline-none ring-2 ring-[color-mix(in_srgb,var(--accent-warm)_42%,transparent)]"
@@ -166,7 +167,7 @@ export function CommitActivityExplorer({ activity, initialDate, initialDetail }:
                         ref={isActive ? activeCellRef : undefined}
                         onClick={() => void selectDay(day)}
                         style={{ background: contributionColor(day.count, max) }}
-                        title={`${day.date}: ${day.count} contributions`}
+                        title={label}
                         type="button"
                       />
                     );
@@ -328,12 +329,7 @@ function FileDiff({ file }: { file: CommitFileDiff }) {
 }
 
 function normalizedDays(week: ContributionWeek) {
-  if (week.days.length === 7) {
-    return week.days;
-  }
-  return Array.from({ length: 7 }, (_, index) => {
-    return week.days[index] ?? { date: `${week.firstDay}-${index}`, count: 0, color: contributionPalette[0] };
-  });
+  return week.days;
 }
 
 function monthLabels(weeks: ContributionWeek[]) {

@@ -1,8 +1,8 @@
-import type { ApiResponse, ProjectSummaryDebug } from "./types";
+import type { ApiResponse, CacheOperationRecord, ProjectSummaryDebug } from "./types";
 
 const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
-export type AdminActionResult = Record<string, string | boolean | number>;
+export type AdminActionResult = CacheOperationRecord;
 
 export type EnvEntry = {
   key: string;
@@ -36,8 +36,43 @@ export function refreshAdminLanguages(token: string) {
   });
 }
 
+export function refreshAdminActivity(token: string) {
+  return adminFetch<AdminActionResult>("/api/admin/cache/refresh/activity", {
+    method: "POST",
+    token,
+  });
+}
+
 export function refreshAdminAll(token: string) {
   return adminFetch<AdminActionResult>("/api/admin/cache/refresh/all", {
+    method: "POST",
+    token,
+  });
+}
+
+export function clearAdminRepoDetails(token: string) {
+  return adminFetch<AdminActionResult>("/api/admin/cache/clear/repo-details", {
+    method: "POST",
+    token,
+  });
+}
+
+export function clearAdminRepoBrowser(token: string) {
+  return adminFetch<AdminActionResult>("/api/admin/cache/clear/repo-browser", {
+    method: "POST",
+    token,
+  });
+}
+
+export function clearAdminAIProjectSummaries(token: string) {
+  return adminFetch<AdminActionResult>("/api/admin/cache/clear/ai-projects", {
+    method: "POST",
+    token,
+  });
+}
+
+export function clearAdminAISiteSummary(token: string) {
+  return adminFetch<AdminActionResult>("/api/admin/cache/clear/ai-site", {
     method: "POST",
     token,
   });
@@ -48,6 +83,10 @@ export function clearAdminAISummaries(token: string) {
     method: "POST",
     token,
   });
+}
+
+export function getAdminCacheRecords(token: string) {
+  return adminFetch<CacheOperationRecord[]>("/api/admin/cache/records", { token });
 }
 
 export function generateAdminAISummary(token: string, repoName: string, forceRefresh: boolean) {

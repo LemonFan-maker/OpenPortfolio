@@ -145,37 +145,40 @@ function ContributionHeatmap({ activity, reduce }: { activity: CommitActivity; r
               style={{ gridTemplateColumns: `repeat(${weeks.length}, 9px)` }}
             >
               {weeks.flatMap((week, weekIndex) =>
-                normalizedDays(week).map((day, dayIndex) => (
-                  <motion.div
-                    aria-label={`${day.date}: ${day.count} contributions`}
-                    className="h-[9px] w-[9px]"
-                    initial={reduce ? false : { opacity: 0, scale: 0.72 }}
-                    animate={reduce ? undefined : { opacity: 1, scale: 1 }}
-                    transition={{
-                      duration: 0.22,
-                      delay: Math.min(0.55, (weekIndex * 7 + dayIndex) * 0.004),
-                      ease: "easeOut",
-                    }}
-                    whileHover={reduce ? undefined : { scale: 1.8, zIndex: 20 }}
-                    key={`${week.firstDay}-${day.date}`}
-                  >
-                    {day.count > 0 ? (
-                      <Link
-                        aria-label={`${day.date}: ${day.count} contributions，查看详情`}
-                        className="block h-[9px] w-[9px] rounded-[2px] border border-[color-mix(in_srgb,var(--line)_55%,transparent)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.28)] outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--accent-warm)]"
-                        href={`/activity?date=${day.date}`}
-                        style={{ background: contributionColor(day.count, max) }}
-                        title={`${day.date}: ${day.count} contributions`}
-                      />
-                    ) : (
-                      <span
-                        className="block h-[9px] w-[9px] rounded-[2px] border border-[color-mix(in_srgb,var(--line)_55%,transparent)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.28)]"
-                        style={{ background: contributionColor(day.count, max) }}
-                        title={`${day.date}: ${day.count} contributions`}
-                      />
-                    )}
-                  </motion.div>
-                )),
+                normalizedDays(week).map((day, dayIndex) => {
+                  const label = `${day.date}: ${day.count} contributions`;
+                  return (
+                    <motion.div
+                      aria-label={label}
+                      className="h-[9px] w-[9px]"
+                      initial={reduce ? false : { opacity: 0, scale: 0.72 }}
+                      animate={reduce ? undefined : { opacity: 1, scale: 1 }}
+                      transition={{
+                        duration: 0.22,
+                        delay: Math.min(0.55, (weekIndex * 7 + dayIndex) * 0.004),
+                        ease: "easeOut",
+                      }}
+                      whileHover={reduce ? undefined : { scale: 1.8, zIndex: 20 }}
+                      key={`${week.firstDay}-${day.date}`}
+                    >
+                      {day.count > 0 ? (
+                        <Link
+                          aria-label={`${day.date}: ${day.count} contributions，查看详情`}
+                          className="block h-[9px] w-[9px] rounded-[2px] border border-[color-mix(in_srgb,var(--line)_55%,transparent)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.28)] outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-[var(--accent-warm)]"
+                          href={`/activity?date=${day.date}`}
+                          style={{ background: contributionColor(day.count, max) }}
+                          title={label}
+                        />
+                      ) : (
+                        <span
+                          className="block h-[9px] w-[9px] rounded-[2px] border border-[color-mix(in_srgb,var(--line)_55%,transparent)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.28)]"
+                          style={{ background: contributionColor(day.count, max) }}
+                          title={label}
+                        />
+                      )}
+                    </motion.div>
+                  );
+                }),
               )}
             </div>
           </div>
@@ -198,12 +201,7 @@ function Metric({ icon, label, value }: { icon: ReactNode; label: string; value:
 }
 
 function normalizedDays(week: ContributionWeek) {
-  if (week.days.length === 7) {
-    return week.days;
-  }
-  return Array.from({ length: 7 }, (_, index) => {
-    return week.days[index] ?? { date: `${week.firstDay}-${index}`, count: 0, color: contributionPalette[0] };
-  });
+  return week.days;
 }
 
 function monthLabels(weeks: ContributionWeek[]) {

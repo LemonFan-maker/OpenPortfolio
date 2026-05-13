@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"path"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,11 +16,35 @@ import (
 
 type Store struct {
 	client *redis.Client
+	memory *memoryStore
+}
+
+type memoryItem struct {
+	raw       []byte
+	expiresAt time.Time
+}
+
+type memoryList struct {
+	items [][]byte
+}
+
+type memoryStore struct {
+	mu    sync.RWMutex
+	items map[string]memoryItem
+	lists map[string]memoryList
+}
+
+func newMemoryStore() *memoryStore {
+	return &memoryStore{
+		items: map[string]memoryItem{},
+		lists: map[string]memoryList{},
+	}
 }
 
 func NewStore(cfg config.Config) *Store {
+	store := &Store{memory: newMemoryStore()}
 	if cfg.RedisAddr == "" {
-		return &Store{}
+		return store
 	}
 
 	client := redis.NewClient(&redis.Options{
@@ -31,14 +58,19 @@ func NewStore(cfg config.Config) *Store {
 
 	if err := client.Ping(ctx).Err(); err != nil {
 		log.Printf("redis disabled: %v", err)
-		return &Store{}
+		return store
 	}
 
-	return &Store{client: client}
+	store.client = client
+	return store
 }
 
 func (s *Store) Enabled() bool {
 	return s != nil && s.client != nil
+}
+
+func (s *Store) Fallback() bool {
+	return s != nil && s.client == nil && s.memory != nil
 }
 
 func (s *Store) Ping(ctx context.Context) error {
@@ -50,7 +82,7 @@ func (s *Store) Ping(ctx context.Context) error {
 
 func (s *Store) GetJSON(ctx context.Context, key string, target any) (bool, error) {
 	if !s.Enabled() {
-		return false, nil
+		return s.getMemoryJSON(key, target)
 	}
 
 	raw, err := s.client.Get(ctx, key).Bytes()
@@ -69,7 +101,7 @@ func (s *Store) GetJSON(ctx context.Context, key string, target any) (bool, erro
 
 func (s *Store) SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
 	if !s.Enabled() {
-		return nil
+		return s.setMemoryJSON(key, value, ttl)
 	}
 
 	raw, err := json.Marshal(value)
@@ -80,15 +112,187 @@ func (s *Store) SetJSON(ctx context.Context, key string, value any, ttl time.Dur
 }
 
 func (s *Store) DeletePattern(ctx context.Context, pattern string) error {
+	_, err := s.DeletePatternCount(ctx, pattern)
+	return err
+}
+
+func (s *Store) DeletePatternCount(ctx context.Context, pattern string) (int64, error) {
 	if !s.Enabled() {
+		return s.deleteMemoryPattern(pattern), nil
+	}
+
+	var deleted int64
+	iter := s.client.Scan(ctx, 0, pattern, 100).Iterator()
+	for iter.Next(ctx) {
+		count, err := s.client.Del(ctx, iter.Val()).Result()
+		if err != nil {
+			return deleted, err
+		}
+		deleted += count
+	}
+	return deleted, iter.Err()
+}
+
+func (s *Store) DeletePatterns(ctx context.Context, patterns ...string) (int64, error) {
+	var total int64
+	for _, pattern := range patterns {
+		deleted, err := s.DeletePatternCount(ctx, pattern)
+		if err != nil {
+			return total, err
+		}
+		total += deleted
+	}
+	return total, nil
+}
+
+func (s *Store) PushJSON(ctx context.Context, key string, value any, limit int64) error {
+	if !s.Enabled() {
+		return s.pushMemoryJSON(key, value, limit)
+	}
+
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if err := s.client.LPush(ctx, key, raw).Err(); err != nil {
+		return err
+	}
+	if limit > 0 {
+		return s.client.LTrim(ctx, key, 0, limit-1).Err()
+	}
+	return nil
+}
+
+func (s *Store) ListJSON(ctx context.Context, key string, target any, limit int64) error {
+	if !s.Enabled() {
+		return s.listMemoryJSON(key, target, limit)
+	}
+
+	stop := int64(-1)
+	if limit > 0 {
+		stop = limit - 1
+	}
+	rawItems, err := s.client.LRange(ctx, key, 0, stop).Result()
+	if err != nil {
+		return err
+	}
+
+	raw := []byte("[" + strings.Join(rawItems, ",") + "]")
+	return json.Unmarshal(raw, target)
+}
+
+func (s *Store) getMemoryJSON(key string, target any) (bool, error) {
+	if s == nil || s.memory == nil {
+		return false, nil
+	}
+
+	s.memory.mu.Lock()
+	defer s.memory.mu.Unlock()
+
+	item, ok := s.memory.items[key]
+	if !ok {
+		return false, nil
+	}
+	if !item.expiresAt.IsZero() && time.Now().After(item.expiresAt) {
+		delete(s.memory.items, key)
+		return false, nil
+	}
+	if err := json.Unmarshal(item.raw, target); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) setMemoryJSON(key string, value any, ttl time.Duration) error {
+	if s == nil || s.memory == nil {
 		return nil
 	}
 
-	iter := s.client.Scan(ctx, 0, pattern, 100).Iterator()
-	for iter.Next(ctx) {
-		if err := s.client.Del(ctx, iter.Val()).Err(); err != nil {
-			return err
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	var expiresAt time.Time
+	if ttl > 0 {
+		expiresAt = time.Now().Add(ttl)
+	}
+
+	s.memory.mu.Lock()
+	defer s.memory.mu.Unlock()
+	s.memory.items[key] = memoryItem{raw: raw, expiresAt: expiresAt}
+	return nil
+}
+
+func (s *Store) deleteMemoryPattern(pattern string) int64 {
+	if s == nil || s.memory == nil {
+		return 0
+	}
+
+	s.memory.mu.Lock()
+	defer s.memory.mu.Unlock()
+
+	var deleted int64
+	for key := range s.memory.items {
+		if memoryPatternMatch(pattern, key) {
+			delete(s.memory.items, key)
+			deleted++
 		}
 	}
-	return iter.Err()
+	for key := range s.memory.lists {
+		if memoryPatternMatch(pattern, key) {
+			delete(s.memory.lists, key)
+			deleted++
+		}
+	}
+	return deleted
+}
+
+func (s *Store) pushMemoryJSON(key string, value any, limit int64) error {
+	if s == nil || s.memory == nil {
+		return nil
+	}
+
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	s.memory.mu.Lock()
+	defer s.memory.mu.Unlock()
+
+	list := s.memory.lists[key]
+	list.items = append([][]byte{raw}, list.items...)
+	if limit > 0 && int64(len(list.items)) > limit {
+		list.items = list.items[:limit]
+	}
+	s.memory.lists[key] = list
+	return nil
+}
+
+func (s *Store) listMemoryJSON(key string, target any, limit int64) error {
+	if s == nil || s.memory == nil {
+		return nil
+	}
+
+	s.memory.mu.RLock()
+	list := s.memory.lists[key]
+	items := append([][]byte(nil), list.items...)
+	s.memory.mu.RUnlock()
+
+	if limit > 0 && int64(len(items)) > limit {
+		items = items[:limit]
+	}
+
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, string(item))
+	}
+	raw := []byte("[" + strings.Join(parts, ",") + "]")
+	return json.Unmarshal(raw, target)
+}
+
+func memoryPatternMatch(pattern string, key string) bool {
+	matched, err := path.Match(pattern, key)
+	return err == nil && matched
 }

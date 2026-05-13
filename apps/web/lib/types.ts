@@ -161,3 +161,16 @@ export interface ProjectSummaryDebug {
   generatedAt: string;
   turns: ProjectSummaryTurnLog[];
 }
+
+export interface CacheOperationRecord {
+  id: string;
+  operation: string;
+  scope: string;
+  status: "success" | "failed";
+  message: string;
+  patterns: string[];
+  affectedKeys: number;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+}
