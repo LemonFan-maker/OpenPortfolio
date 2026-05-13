@@ -1,13 +1,19 @@
 "use client";
 
 import {
+  clearAdminAIProjectSummaries,
   clearAdminAISummaries,
+  clearAdminAISiteSummary,
+  clearAdminRepoBrowser,
+  clearAdminRepoDetails,
   generateAdminAISummary,
   type EnvEntry,
+  getAdminCacheRecords,
   getAdminFeatured,
   getAdminEnv,
   getAdminHiddenProjects,
   loginAdmin,
+  refreshAdminActivity,
   refreshAdminAll,
   refreshAdminLanguages,
   refreshAdminRepos,
@@ -15,7 +21,7 @@ import {
   saveAdminFeatured,
   saveAdminHiddenProjects,
 } from "@/lib/admin-api";
-import type { CommitActivity, LanguageStats, ProjectCard, ProjectSummaryDebug } from "@/lib/types";
+import type { CacheOperationRecord, CommitActivity, LanguageStats, ProjectCard, ProjectSummaryDebug } from "@/lib/types";
 import {
   Activity,
   Bot,
@@ -45,9 +51,10 @@ const tokenStorageKey = "portfolio-hub-admin-token";
 
 type Operation = {
   description: string;
+  group: string;
   icon: typeof RefreshCcw;
   id: string;
-  run: (token: string) => Promise<unknown>;
+  run: (token: string) => Promise<CacheOperationRecord>;
   title: string;
 };
 
@@ -154,6 +161,7 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
   const [hiddenText, setHiddenText] = useState("");
   const [envPath, setEnvPath] = useState("");
   const [envEntries, setEnvEntries] = useState<EnvEntry[]>([]);
+  const [cacheRecords, setCacheRecords] = useState<CacheOperationRecord[]>([]);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState("");
   const [savingEnv, setSavingEnv] = useState(false);
@@ -192,35 +200,92 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     () => [
       {
         description: "重新拉取 GitHub 仓库列表和项目基础信息。",
+        group: "GitHub 数据",
         icon: Database,
         id: "repos",
         run: refreshAdminRepos,
-        title: "刷新项目缓存",
+        title: "项目列表",
       },
       {
         description: "重新统计公开仓库语言占比数据。",
+        group: "GitHub 数据",
         icon: Activity,
         id: "languages",
         run: refreshAdminLanguages,
-        title: "刷新语言统计",
+        title: "语言统计",
+      },
+      {
+        description: "重新拉取年度贡献热力图数据。",
+        group: "GitHub 数据",
+        icon: Github,
+        id: "activity",
+        run: refreshAdminActivity,
+        title: "贡献活动",
+      },
+      {
+        description: "清理仓库详情和 README 缓存，下一次访问时重新拉取。",
+        group: "仓库浏览",
+        icon: Server,
+        id: "repo-details",
+        run: clearAdminRepoDetails,
+        title: "仓库详情",
+      },
+      {
+        description: "清理目录树、文件摘要和文件正文缓存。",
+        group: "仓库浏览",
+        icon: Database,
+        id: "repo-browser",
+        run: clearAdminRepoBrowser,
+        title: "目录与文件",
       },
       {
         description: "清空 AI 项目简介缓存，下一次访问时重新生成。",
+        group: "AI 生成",
         icon: Sparkles,
-        id: "ai",
-        run: clearAdminAISummaries,
-        title: "清空 AI 简介",
+        id: "ai-projects",
+        run: clearAdminAIProjectSummaries,
+        title: "项目简介",
       },
       {
-        description: "按顺序刷新项目、语言，并清理 AI 简介缓存。",
+        description: "清空首页站点简介缓存，下一次访问时重新汇总。",
+        group: "AI 生成",
+        icon: Bot,
+        id: "ai-site",
+        run: clearAdminAISiteSummary,
+        title: "站点简介",
+      },
+      {
+        description: "一次性清空项目简介和站点简介缓存。",
+        group: "AI 生成",
+        icon: Sparkles,
+        id: "ai-all",
+        run: clearAdminAISummaries,
+        title: "全部 AI",
+      },
+      {
+        description: "清理派生缓存，并按顺序刷新项目、语言和贡献活动。",
+        group: "全局操作",
         icon: RefreshCcw,
         id: "all",
         run: refreshAdminAll,
-        title: "刷新全部缓存",
+        title: "完整刷新",
       },
     ],
     [],
   );
+
+  const operationGroups = useMemo(() => {
+    const groups: { name: string; operations: Operation[] }[] = [];
+    for (const operation of operations) {
+      let group = groups.find((item) => item.name === operation.group);
+      if (!group) {
+        group = { name: operation.group, operations: [] };
+        groups.push(group);
+      }
+      group.operations.push(operation);
+    }
+    return groups;
+  }, [operations]);
 
   const topProjects = useMemo(
     () => [...projects].sort((a, b) => b.stars - a.stars).slice(0, 5),
@@ -254,16 +319,18 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     async function loadConfig() {
       setLoadingConfig(true);
       try {
-        const [featured, hidden, envFile] = await Promise.all([
+        const [featured, hidden, envFile, records] = await Promise.all([
           getAdminFeatured(token),
           getAdminHiddenProjects(token),
           getAdminEnv(token),
+          getAdminCacheRecords(token),
         ]);
         if (!ignore) {
           setFeaturedText(featured.join("\n"));
           setHiddenText(hidden.join("\n"));
           setEnvPath(envFile.path);
           setEnvEntries(envFile.entries);
+          setCacheRecords(records);
         }
       } catch (nextError) {
         if (!ignore) {
@@ -281,6 +348,14 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
       ignore = true;
     };
   }, [token]);
+
+  async function loadCacheRecords(nextToken = token) {
+    if (!nextToken) {
+      return;
+    }
+    const records = await getAdminCacheRecords(nextToken);
+    setCacheRecords(records);
+  }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -307,10 +382,13 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     setNotice("");
 
     try {
-      await operation.run(token);
-      setNotice(`${operation.title}已完成`);
+      const record = await operation.run(token);
+      setCacheRecords((current) => [record, ...current.filter((item) => item.id !== record.id)].slice(0, 30));
+      setNotice(record.affectedKeys > 0 ? `${operation.title}已完成，影响 ${record.affectedKeys} 个缓存键` : `${operation.title}已完成`);
+      void loadCacheRecords();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "操作失败");
+      void loadCacheRecords();
     } finally {
       setActiveOperation("");
     }
@@ -381,6 +459,7 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     setHiddenText("");
     setEnvPath("");
     setEnvEntries([]);
+    setCacheRecords([]);
     setAiRepoName(projects[0]?.name ?? "");
     setAiForceRefresh(true);
     setAiLoading(false);
@@ -613,39 +692,102 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
           </div>
         </section>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[1.08fr_0.92fr]">
-          <section className="surface p-5">
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-2xl font-black">缓存操作</h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">对接后端管理接口实时执行。</p>
+        <section className="surface p-5">
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-black">缓存刷新</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">按数据来源和派生内容分开处理，每次操作都会留下记录。</p>
+            </div>
+            <RefreshCcw size={20} />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-4">
+            {operationGroups.map((group) => (
+              <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_66%,transparent)] p-3" key={group.name}>
+                <div className="mb-3 text-xs font-black uppercase text-[var(--muted)]">{group.name}</div>
+                <div className="space-y-2">
+                  {group.operations.map((operation) => {
+                    const Icon = operation.icon;
+                    const loading = activeOperation === operation.id;
+                    return (
+                      <button
+                        className="flex min-h-12 w-full items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--background)] px-3 py-2 text-left transition hover:border-[color-mix(in_srgb,var(--accent-warm)_48%,var(--line))]"
+                        disabled={Boolean(activeOperation)}
+                        key={operation.id}
+                        onClick={() => void runOperation(operation)}
+                        title={operation.description}
+                        type="button"
+                      >
+                        <Icon className="shrink-0 text-[var(--accent-warm)]" size={17} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-black">{operation.title}</span>
+                          <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{operation.description}</span>
+                        </span>
+                        {loading ? <Loader2 className="shrink-0 animate-spin" size={16} /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <RefreshCcw size={20} />
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {operations.map((operation) => {
-                const Icon = operation.icon;
-                const loading = activeOperation === operation.id;
-                return (
-                  <button
-                    className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_66%,transparent)] p-4 text-left transition hover:border-[color-mix(in_srgb,var(--accent-warm)_48%,var(--line))]"
-                    disabled={Boolean(activeOperation)}
-                    key={operation.id}
-                    onClick={() => void runOperation(operation)}
-                    type="button"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <Icon className="text-[var(--accent-warm)]" size={20} />
-                      {loading ? <Loader2 className="animate-spin" size={18} /> : null}
-                    </div>
-                    <div className="mt-4 font-black">{operation.title}</div>
-                    <div className="mt-2 text-sm leading-6 text-[var(--muted)]">{operation.description}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+            ))}
+          </div>
+        </section>
 
+        <section className="surface p-5">
+          <div className="mb-5 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-black">刷新记录</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">最近 30 次缓存操作。</p>
+            </div>
+            <Database size={20} />
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {cacheRecords.length > 0 ? (
+              cacheRecords.map((record) => (
+                <div
+                  className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_66%,transparent)] p-3"
+                  key={record.id}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-bold">{cacheScopeLabel(record.scope)}</div>
+                    <span
+                      className={
+                        record.status === "success"
+                          ? "rounded-full border border-[color-mix(in_srgb,var(--accent-leaf)_46%,var(--line))] px-2 py-1 text-xs font-bold text-[var(--accent-leaf)]"
+                          : "rounded-full border border-[color-mix(in_srgb,var(--accent-warm)_46%,var(--line))] px-2 py-1 text-xs font-bold text-[var(--accent-warm)]"
+                      }
+                    >
+                      {record.status === "success" ? "成功" : "失败"}
+                    </span>
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-[var(--muted)]">{record.message}</div>
+                  <div className="mt-3 grid gap-2 text-xs text-[var(--muted)] sm:grid-cols-3">
+                    <span>{formatDateTime(record.finishedAt)}</span>
+                    <span>{record.durationMs} ms</span>
+                    <span>{record.affectedKeys} keys</span>
+                  </div>
+                  {record.patterns.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {record.patterns.map((pattern) => (
+                        <code
+                          className="rounded-md border border-[var(--line)] bg-[var(--background)] px-2 py-1 text-xs text-[var(--muted)]"
+                          key={pattern}
+                        >
+                          {pattern}
+                        </code>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_66%,transparent)] p-4 text-sm text-[var(--muted)]">
+                暂无刷新记录
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="grid items-start gap-6 lg:grid-cols-[0.92fr_1.08fr]">
           <section className="surface p-5">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
@@ -707,6 +849,33 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
       </div>
     </section>
   );
+}
+
+function cacheScopeLabel(scope: string) {
+  const labels: Record<string, string> = {
+    "ai:all": "全部 AI 缓存",
+    "ai:project-summary": "AI 项目简介",
+    "ai:site-summary": "AI 站点简介",
+    "cache:all": "完整缓存刷新",
+    "github:activity": "GitHub 贡献活动",
+    "github:languages": "GitHub 语言统计",
+    "github:repo-browser": "仓库目录与文件",
+    "github:repo-details": "仓库详情与 README",
+    "github:repos": "GitHub 项目列表",
+  };
+  return labels[scope] ?? scope;
+}
+
+function formatDateTime(value: string) {
+  if (!value) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    month: "2-digit",
+  }).format(new Date(value));
 }
 
 function InfoBlock({ label, value }: { label: string; value: string }) {
