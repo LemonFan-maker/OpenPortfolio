@@ -12,3 +12,5 @@ apps/server/.gocache/
 apps/server/.gomodcache/
 .go-build-cache
 .gocache
+*.tsbuildinfo
+apps/web/pnpm-lock.yaml
