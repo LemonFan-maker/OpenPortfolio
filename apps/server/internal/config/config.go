@@ -8,6 +8,17 @@ import (
 	"strings"
 )
 
+const (
+	AIProviderOpenCode = "opencode"
+	AIProviderOpenAI   = "openai"
+
+	DefaultOpenCodeBaseURL = "https://opencode.ai/inference/openai/v1"
+	DefaultOpenAIBaseURL   = "https://api.openai.com/v1"
+
+	DefaultOpenCodeModel = "deepseek-v4.1-flash"
+	DefaultOpenAIModel   = "gpt-4o-mini"
+)
+
 type Config struct {
 	GitHubUsername  string
 	GitHubToken     string
@@ -17,9 +28,12 @@ type Config struct {
 	HiddenRepoNames []string
 	HiddenRepos     map[string]bool
 
-	AIAPIKey  string
-	AIBaseURL string
-	AIModel   string
+	AIProvider      string
+	AIAPIKey        string
+	AIBaseURL       string
+	AIModel         string
+	OpenCodeAPIKey  string
+	OpenCodeBaseURL string
 
 	BlogURL         string
 	SiteName        string
@@ -39,6 +53,12 @@ type Config struct {
 func Load() Config {
 	loadDotEnv()
 
+	aiProvider := env("AI_PROVIDER", AIProviderOpenCode)
+	aiDefaultModel := DefaultOpenCodeModel
+	if strings.EqualFold(aiProvider, AIProviderOpenAI) {
+		aiDefaultModel = DefaultOpenAIModel
+	}
+
 	return Config{
 		GitHubUsername:  env("GITHUB_USERNAME", ""),
 		GitHubToken:     env("GITHUB_TOKEN", ""),
@@ -47,9 +67,12 @@ func Load() Config {
 		FeaturedRepos:   ParseCSVList(env("FEATURED_REPOS", "")),
 		HiddenRepoNames: ParseCSVList(env("HIDDEN_REPOS", "")),
 		HiddenRepos:     parseCSVMap(env("HIDDEN_REPOS", "")),
+		AIProvider:      aiProvider,
 		AIAPIKey:        env("AI_API_KEY", ""),
-		AIBaseURL:       strings.TrimRight(env("AI_BASE_URL", "https://api.openai.com/v1"), "/"),
-		AIModel:         env("AI_MODEL", "gpt-4o-mini"),
+		AIBaseURL:       strings.TrimRight(env("AI_BASE_URL", DefaultOpenAIBaseURL), "/"),
+		AIModel:         env("AI_MODEL", aiDefaultModel),
+		OpenCodeAPIKey:  env("OPENCODE_API_KEY", ""),
+		OpenCodeBaseURL: strings.TrimRight(env("OPENCODE_BASE_URL", DefaultOpenCodeBaseURL), "/"),
 		BlogURL:         env("BLOG_URL", ""),
 		SiteName:        env("SITE_NAME", "OrionisLi.com"),
 		SiteDescription: env(

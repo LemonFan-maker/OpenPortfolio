@@ -7,7 +7,7 @@ Portfolio Hub 是一个个人 GitHub 项目展示站，用于聚合公开仓库�
 - 前端：Next.js 15、React 19、TypeScript、Tailwind CSS、Recharts、Framer Motion、Lucide React
 - 后端：Go 1.23、Gin
 - 缓存：Redis；运行中故障时熔断 30 秒并降级为进程内存，随后自动探测恢复
-- 数据源：GitHub REST API、GitHub GraphQL API、OpenAI 兼容 AI API
+- 数据源：GitHub REST API、GitHub GraphQL API、OpenCode Go/Console（默认）或 OpenAI 兼容 AI API
 - 包管理：npm workspaces
 - 容器化：前端和后端分别提供 Dockerfile
 
@@ -53,7 +53,7 @@ Portfolio Hub 是一个个人 GitHub 项目展示站，用于聚合公开仓库�
 - Go 1.23 或兼容版本
 - Redis，开发阶段可选；未启动 Redis 时后端会使用内存缓存，运行中故障会熔断 30 秒
 - GitHub Personal Access Token，建议至少具备读取公开仓库和贡献数据所需权限
-- OpenAI 兼容 API Key，只有使用 AI 摘要能力时必需
+- OpenCode API Key（默认 `AI_PROVIDER=opencode`）；或 OpenAI 兼容 API Key（`AI_PROVIDER=openai`）。只有使用 AI 摘要能力时必需。
 
 ## 快速开始
 
@@ -62,6 +62,8 @@ Portfolio Hub 是一个个人 GitHub 项目展示站，用于聚合公开仓库�
 ```bash
 cp .env.example .env
 ```
+
+编辑 `.env`，至少填写 `GITHUB_USERNAME` 和 `OPENCODE_API_KEY`。如果需要继续使用旧 OpenAI 兼容接口，将 `AI_PROVIDER` 改为 `openai` 并填写 `AI_API_KEY`。
 
 安装前端依赖：
 
@@ -106,9 +108,12 @@ npm run dev:web
 | `GITHUB_TOKEN` | 建议 | GitHub API Token。未配置时容易触发低额度限制，贡献活动和私有信息也可能不可用。 |
 | `FEATURED_REPOS` | 否 | 首页精选项目列表，逗号分隔。 |
 | `HIDDEN_REPOS` | 否 | 不展示的仓库名，逗号分隔。 |
-| `AI_API_KEY` | AI 必填 | OpenAI 兼容接口的 API Key。 |
-| `AI_BASE_URL` | 否 | OpenAI 兼容接口地址，默认使用 `https://api.openai.com/v1`。 |
-| `AI_MODEL` | 否 | AI 摘要使用的模型名。 |
+| `AI_PROVIDER` | 否 | AI 提供方：`opencode`（默认）或 `openai`。不会跨提供方自动回退。 |
+| `OPENCODE_API_KEY` | opencode 必填 | OpenCode Go/Console 的 API Key，通常以 `oc_sk_` 开头。 |
+| `OPENCODE_BASE_URL` | 否 | OpenCode OpenAI 兼容接口地址，默认 `https://opencode.ai/inference/openai/v1`。 |
+| `AI_API_KEY` | openai 必填 | 旧 OpenAI 兼容接口的 API Key。 |
+| `AI_BASE_URL` | 否 | 旧 OpenAI 兼容接口地址，默认 `https://api.openai.com/v1`。 |
+| `AI_MODEL` | 否 | AI 摘要使用的模型名；`opencode` 默认 `deepseek-v4.1-flash`，`openai` 默认 `gpt-4o-mini`。 |
 | `BLOG_URL` | 否 | 后端使用的博客链接。 |
 | `SITE_NAME` | 否 | 后端站点名称。 |
 | `SITE_DESCRIPTION` | 否 | 后端站点描述。 |

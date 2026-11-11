@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -40,6 +41,65 @@ const (
 )
 
 var errEmptyAIContent = errors.New("ai api returned empty message content")
+
+type aiSettings struct {
+	provider string
+	apiKey   string
+	baseURL  string
+	model    string
+}
+
+func (s *AIService) aiSettings() (aiSettings, error) {
+	provider := strings.ToLower(strings.TrimSpace(s.cfg.AIProvider))
+	if provider == "" {
+		if strings.TrimSpace(s.cfg.OpenCodeAPIKey) != "" {
+			provider = config.AIProviderOpenCode
+		} else {
+			provider = config.AIProviderOpenAI
+		}
+	}
+
+	switch provider {
+	case config.AIProviderOpenCode:
+		apiKey := strings.TrimSpace(s.cfg.OpenCodeAPIKey)
+		if apiKey == "" {
+			return aiSettings{}, errors.New("opencode api key is not configured (set OPENCODE_API_KEY)")
+		}
+		baseURL := strings.TrimRight(strings.TrimSpace(s.cfg.OpenCodeBaseURL), "/")
+		if baseURL == "" {
+			baseURL = config.DefaultOpenCodeBaseURL
+		}
+		model := strings.TrimSpace(s.cfg.AIModel)
+		if model == "" {
+			model = config.DefaultOpenCodeModel
+		}
+		return aiSettings{provider: provider, apiKey: apiKey, baseURL: baseURL, model: model}, nil
+	case config.AIProviderOpenAI:
+		apiKey := strings.TrimSpace(s.cfg.AIAPIKey)
+		if apiKey == "" {
+			return aiSettings{}, errors.New("ai api key is not configured (set AI_API_KEY)")
+		}
+		baseURL := strings.TrimRight(strings.TrimSpace(s.cfg.AIBaseURL), "/")
+		if baseURL == "" {
+			baseURL = config.DefaultOpenAIBaseURL
+		}
+		model := strings.TrimSpace(s.cfg.AIModel)
+		if model == "" {
+			model = config.DefaultOpenAIModel
+		}
+		return aiSettings{provider: provider, apiKey: apiKey, baseURL: baseURL, model: model}, nil
+	default:
+		return aiSettings{}, fmt.Errorf("unsupported AI_PROVIDER %q (expected %s or %s)", s.cfg.AIProvider, config.AIProviderOpenCode, config.AIProviderOpenAI)
+	}
+}
+
+func newAISessionID() string {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return fmt.Sprintf("portfolio-hub-%d", time.Now().UnixNano())
+	}
+	return "portfolio-hub-" + hex.EncodeToString(id[:])
+}
 
 func NewAIService(cfg config.Config, store *cache.Store, github *GitHubService) *AIService {
 	return &AIService{
@@ -124,8 +184,8 @@ func (s *AIService) projectSummaryResultOnce(ctx context.Context, repoName strin
 
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
-	if s.cfg.AIAPIKey == "" {
-		return fallbackProjectSummaryResult(repoName, detail, model.RepoTree{}, createdAt, nil, errors.New("ai api key is not configured")), nil
+	if _, err := s.aiSettings(); err != nil {
+		return fallbackProjectSummaryResult(repoName, detail, model.RepoTree{}, createdAt, nil, err), nil
 	}
 
 	tree, err := s.github.RepoTree(ctx, repoName, force)
@@ -222,8 +282,8 @@ func (s *AIService) siteSummaryResultOnce(ctx context.Context, force bool) (site
 		}
 	}
 
-	if s.cfg.AIAPIKey == "" {
-		return fallbackSiteSummaryResult(createdAt, projects, &languages, &activity, errors.New("ai api key is not configured")), nil
+	if _, err := s.aiSettings(); err != nil {
+		return fallbackSiteSummaryResult(createdAt, projects, &languages, &activity, err), nil
 	}
 
 	projectSummaries, err := s.collectProjectSummaries(ctx, projects, force)
@@ -362,9 +422,10 @@ func (s *AIService) generateWithRepoBrowser(ctx context.Context, repoName string
 		Files:  map[string]model.RepoFile{},
 	}
 	turnLogs := make([]model.ProjectSummaryTurnLog, 0, maxRepoBrowseTurns)
+	sessionID := newAISessionID()
 
 	for turn := 0; turn < maxRepoBrowseTurns; turn++ {
-		decision, prompt, rawResponse, err := s.askRepoBrowseDecision(ctx, repoName, state)
+		decision, prompt, rawResponse, err := s.askRepoBrowseDecision(ctx, repoName, state, sessionID)
 		if err != nil {
 			turnLogs = append(turnLogs, model.ProjectSummaryTurnLog{
 				Turn:     turn + 1,
@@ -374,7 +435,7 @@ func (s *AIService) generateWithRepoBrowser(ctx context.Context, repoName string
 			})
 			if isRecoverableAIFormatError(err) {
 				directPrompt := buildDirectProjectSummaryPrompt(repoName, detail, tree)
-				summary, directResponse, directErr := s.generateDirectProjectSummary(ctx, repoName, detail, tree)
+				summary, directResponse, directErr := s.generateDirectProjectSummary(ctx, repoName, detail, tree, sessionID)
 				directLog := model.ProjectSummaryTurnLog{
 					Turn:     turn + 2,
 					Prompt:   directPrompt,
@@ -471,9 +532,9 @@ func (s *AIService) generateWithRepoBrowser(ctx context.Context, repoName string
 	return fallbackSummary(detail), turnLogs, errors.New("ai summary did not finish in time")
 }
 
-func (s *AIService) generateDirectProjectSummary(ctx context.Context, repoName string, detail model.RepoDetail, tree model.RepoTree) (model.ProjectSummary, string, error) {
+func (s *AIService) generateDirectProjectSummary(ctx context.Context, repoName string, detail model.RepoDetail, tree model.RepoTree, sessionID string) (model.ProjectSummary, string, error) {
 	prompt := buildDirectProjectSummaryPrompt(repoName, detail, tree)
-	content, rawBody, err := s.requestAIContent(ctx, "You are a repository analysis assistant. Return valid JSON only.", prompt, 0.25)
+	content, rawBody, err := s.requestAIContent(ctx, sessionID, "You are a repository analysis assistant. Return valid JSON only.", prompt, 0.25)
 	if err != nil {
 		return model.ProjectSummary{}, rawBody, err
 	}
@@ -492,7 +553,7 @@ func (s *AIService) generateDirectProjectSummary(ctx context.Context, repoName s
 func (s *AIService) generateSiteSummary(ctx context.Context, projects []model.ProjectCard, projectSummaries []projectResumeItem, languages model.LanguageStats, activity model.CommitActivity) (model.SiteSummary, string, error) {
 	prompt := buildSiteSummaryPrompt(projects, projectSummaries, languages, activity)
 
-	content, rawBody, err := s.requestAIContent(ctx, "You are a concise homepage copywriter. Return valid JSON only.", prompt, 0.35)
+	content, rawBody, err := s.requestAIContent(ctx, newAISessionID(), "You are a concise homepage copywriter. Return valid JSON only.", prompt, 0.35)
 	if err != nil {
 		return model.SiteSummary{}, rawBody, err
 	}
@@ -571,9 +632,9 @@ func (d *repoBrowseDecision) UnmarshalJSON(data []byte) error {
 	return errors.New("invalid summary payload")
 }
 
-func (s *AIService) askRepoBrowseDecision(ctx context.Context, repoName string, state repoBrowseState) (repoBrowseDecision, string, string, error) {
+func (s *AIService) askRepoBrowseDecision(ctx context.Context, repoName string, state repoBrowseState, sessionID string) (repoBrowseDecision, string, string, error) {
 	prompt := buildRepoBrowsePrompt(repoName, state)
-	content, rawBody, err := s.requestAIContent(ctx, "You are a repository analysis assistant. Return valid JSON only.", prompt, 0.2)
+	content, rawBody, err := s.requestAIContent(ctx, sessionID, "You are a repository analysis assistant. Return valid JSON only.", prompt, 0.2)
 	if err != nil {
 		return repoBrowseDecision{}, prompt, rawBody, err
 	}
@@ -588,9 +649,17 @@ func (s *AIService) askRepoBrowseDecision(ctx context.Context, repoName string, 
 	return decision, prompt, content, nil
 }
 
-func (s *AIService) requestAIContent(ctx context.Context, systemContent string, userContent string, temperature float64) (string, string, error) {
+func (s *AIService) requestAIContent(ctx context.Context, sessionID string, systemContent string, userContent string, temperature float64) (string, string, error) {
+	settings, err := s.aiSettings()
+	if err != nil {
+		return "", "", err
+	}
+	if settings.provider == config.AIProviderOpenCode && strings.TrimSpace(sessionID) == "" {
+		sessionID = newAISessionID()
+	}
+
 	payload := map[string]any{
-		"model": s.cfg.AIModel,
+		"model": settings.model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemContent},
 			{"role": "user", "content": userContent},
@@ -604,12 +673,17 @@ func (s *AIService) requestAIContent(ctx context.Context, systemContent string, 
 		return "", "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.AIBaseURL+"/chat/completions", bytes.NewReader(raw))
+	endpoint := settings.baseURL + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.AIAPIKey)
+	req.Header.Set("Authorization", "Bearer "+settings.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "portfolio-hub/1.0")
+	if settings.provider == config.AIProviderOpenCode {
+		req.Header.Set("x-opencode-session", sessionID)
+	}
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -623,7 +697,7 @@ func (s *AIService) requestAIContent(ctx context.Context, systemContent string, 
 	}
 	rawBody := strings.TrimSpace(string(body))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", rawBody, fmt.Errorf("ai api returned %d: %s", resp.StatusCode, rawBody)
+		return "", rawBody, fmt.Errorf("%s api returned %d: %s", settings.provider, resp.StatusCode, rawBody)
 	}
 
 	content, err := decodeAIContent(body)
