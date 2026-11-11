@@ -5,14 +5,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"portfolio-hub/apps/server/internal/config"
 	"portfolio-hub/apps/server/internal/model"
 	"portfolio-hub/apps/server/internal/response"
 	"portfolio-hub/apps/server/internal/service"
 )
 
-func RegisterAIRoutes(router *gin.Engine, aiService *service.AIService) {
-	router.POST("/api/ai/project-summary", projectSummaryStatus(aiService))
-	router.POST("/api/ai/site-summary", siteSummary(aiService))
+func RegisterAIRoutes(router *gin.Engine, aiService *service.AIService, cfg config.Config) {
+	limiter := newPublicAILimiter(cfg.AIPublicPerMinute, cfg.AIPublicGlobalPerMinute, cfg.AIPublicMaxConcurrency)
+	router.POST("/api/ai/project-summary", publicAIRateLimit(limiter), projectSummaryStatus(aiService))
+	router.POST("/api/ai/site-summary", publicAIRateLimit(limiter), siteSummary(aiService))
 }
 
 func projectSummaryStatus(aiService *service.AIService) gin.HandlerFunc {

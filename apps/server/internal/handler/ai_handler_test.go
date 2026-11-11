@@ -107,7 +107,7 @@ func newAIStubRouter(t *testing.T) (*gin.Engine, *atomic.Int64) {
 	aiService := NewAIService(cfg, store, githubService)
 
 	router := gin.New()
-	RegisterAIRoutes(router, aiService)
+	RegisterAIRoutes(router, aiService, cfg)
 	return router, &aiCalls
 }
 

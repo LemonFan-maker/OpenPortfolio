@@ -40,6 +40,10 @@ type Config struct {
 	OpenCodeAPIKey  string
 	OpenCodeBaseURL string
 
+	AIPublicPerMinute       int
+	AIPublicGlobalPerMinute int
+	AIPublicMaxConcurrency  int
+
 	BlogURL         string
 	SiteName        string
 	SiteDescription string
@@ -82,8 +86,12 @@ func Load() Config {
 		AIModel:         env("AI_MODEL", aiDefaultModel),
 		OpenCodeAPIKey:  env("OPENCODE_API_KEY", ""),
 		OpenCodeBaseURL: strings.TrimRight(env("OPENCODE_BASE_URL", DefaultOpenCodeBaseURL), "/"),
-		BlogURL:         env("BLOG_URL", ""),
-		SiteName:        env("SITE_NAME", "OrionisLi.com"),
+
+		AIPublicPerMinute:       envInt("AI_PUBLIC_PER_MINUTE", 6),
+		AIPublicGlobalPerMinute: envInt("AI_PUBLIC_GLOBAL_PER_MINUTE", 30),
+		AIPublicMaxConcurrency:  envInt("AI_PUBLIC_MAX_CONCURRENCY", 2),
+		BlogURL:                 env("BLOG_URL", ""),
+		SiteName:                env("SITE_NAME", "OrionisLi.com"),
 		SiteDescription: env(
 			"SITE_DESCRIPTION",
 			"代码如诗，构建无限可能",

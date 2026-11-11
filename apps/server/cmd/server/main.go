@@ -27,7 +27,7 @@ func main() {
 	aiService := handler.NewAIService(cfg, redisStore, githubService)
 
 	handler.RegisterGitHubRoutes(router, githubService)
-	handler.RegisterAIRoutes(router, aiService)
+	handler.RegisterAIRoutes(router, aiService, cfg)
 	handler.RegisterAdminRoutes(router, cfg, redisStore, githubService, aiService)
 
 	addr := ":" + cfg.ServerPort

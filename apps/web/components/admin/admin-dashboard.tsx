@@ -84,7 +84,7 @@ const envGroupDefinitions: EnvGroupDefinition[] = [
     description: "用于生成项目简介和个人履历的大模型接口。",
     icon: Bot,
     id: "ai",
-    keys: ["AI_PROVIDER", "OPENCODE_API_KEY", "OPENCODE_BASE_URL", "AI_API_KEY", "AI_BASE_URL", "AI_MODEL"],
+    keys: ["AI_PROVIDER", "OPENCODE_API_KEY", "OPENCODE_BASE_URL", "AI_API_KEY", "AI_BASE_URL", "AI_MODEL", "AI_PUBLIC_PER_MINUTE", "AI_PUBLIC_GLOBAL_PER_MINUTE", "AI_PUBLIC_MAX_CONCURRENCY"],
     title: "AI 生成",
   },
   {
@@ -135,6 +135,9 @@ const envFieldLabels: Record<string, { label: string; hint: string }> = {
   AI_API_KEY: { label: "OpenAI API Key（回退）", hint: "仅 AI_PROVIDER=openai 时使用，不会暴露给前端。" },
   AI_BASE_URL: { label: "OpenAI Base URL（回退）", hint: "旧 OpenAI 兼容接口地址。" },
   AI_MODEL: { label: "AI 模型", hint: "openai 默认 gpt-4o-mini；opencode 默认 deepseek-v4.1-flash。" },
+  AI_PUBLIC_PER_MINUTE: { label: "AI 单 IP 限额", hint: "每个客户端 IP 每分钟允许的公开 AI 请求数。" },
+  AI_PUBLIC_GLOBAL_PER_MINUTE: { label: "AI 全局限额", hint: "所有公开 AI 请求合计每分钟上限。" },
+  AI_PUBLIC_MAX_CONCURRENCY: { label: "AI 全局并发", hint: "同时执行的公开 AI 请求上限，超出返回 429。" },
   BLOG_URL: { label: "博客地址", hint: "导航栏和关于页的博客入口。" },
   SITE_NAME: { label: "站点名称", hint: "服务端站点配置名称。" },
   SITE_DESCRIPTION: { label: "站点描述", hint: "首页主描述文案。" },

@@ -114,6 +114,9 @@ npm run dev:web
 | `AI_API_KEY` | openai 必填 | 旧 OpenAI 兼容接口的 API Key。 |
 | `AI_BASE_URL` | 否 | 旧 OpenAI 兼容接口地址，默认 `https://api.openai.com/v1`。 |
 | `AI_MODEL` | 否 | AI 摘要使用的模型名；`opencode` 默认 `deepseek-v4.1-flash`，`openai` 默认 `gpt-4o-mini`。 |
+| `AI_PUBLIC_PER_MINUTE` | 否 | 每个客户端 IP 每分钟允许的公开 AI 请求数，默认 `6`。 |
+| `AI_PUBLIC_GLOBAL_PER_MINUTE` | 否 | 所有公开 AI 请求合计每分钟上限，默认 `30`。 |
+| `AI_PUBLIC_MAX_CONCURRENCY` | 否 | 同时执行的公开 AI 请求上限，默认 `2`；超出返回 `429`。 |
 | `BLOG_URL` | 否 | 后端使用的博客链接。 |
 | `SITE_NAME` | 否 | 后端站点名称。 |
 | `SITE_DESCRIPTION` | 否 | 后端站点描述。 |
@@ -237,6 +240,8 @@ gofmt -w ./cmd ./internal
 | `GET` | `/api/github/activity/:date` | 指定日期 commit 详情，日期格式为 `YYYY-MM-DD`。 |
 | `POST` | `/api/ai/project-summary` | 生成或读取项目 AI 摘要。 |
 | `POST` | `/api/ai/site-summary` | 生成或读取站点 AI 摘要。 |
+
+公开 AI 接口在生成或读取摘要前会按客户端 IP 和全局令牌桶限流；超过限额返回 `429` 和 `Retry-After`。管理员调试接口不受该限流影响。
 
 AI 摘要请求示例：
 

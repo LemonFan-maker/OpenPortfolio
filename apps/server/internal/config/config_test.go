@@ -156,3 +156,26 @@ func TestAdminAuthReadyRequiresNonDefaultStrongSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadPublicAIRateLimitDefaults(t *testing.T) {
+	chdirTemp(t)
+	clearAITestEnv(t)
+	for _, key := range []string{
+		"AI_PUBLIC_PER_MINUTE",
+		"AI_PUBLIC_GLOBAL_PER_MINUTE",
+		"AI_PUBLIC_MAX_CONCURRENCY",
+	} {
+		t.Setenv(key, "")
+	}
+
+	cfg := Load()
+	if cfg.AIPublicPerMinute != 6 {
+		t.Fatalf("AIPublicPerMinute = %d, want 6", cfg.AIPublicPerMinute)
+	}
+	if cfg.AIPublicGlobalPerMinute != 30 {
+		t.Fatalf("AIPublicGlobalPerMinute = %d, want 30", cfg.AIPublicGlobalPerMinute)
+	}
+	if cfg.AIPublicMaxConcurrency != 2 {
+		t.Fatalf("AIPublicMaxConcurrency = %d, want 2", cfg.AIPublicMaxConcurrency)
+	}
+}
