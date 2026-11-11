@@ -98,6 +98,14 @@ function ContributionHeatmap({ activity, reduce }: { activity: CommitActivity; r
   const max = Math.max(activity.maxContributions, ...weeks.flatMap((week) => week.days.map((day) => day.count)), 0);
   const labels = monthLabels(weeks);
 
+  if (weeks.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-[var(--line)] p-4 text-sm text-[var(--muted)]">
+        GitHub 贡献数据暂不可用。
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_58%,transparent)] p-4 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.32)]">
       <div className="mb-4 flex items-end justify-between gap-4">

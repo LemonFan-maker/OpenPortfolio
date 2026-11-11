@@ -68,8 +68,19 @@ export function ProjectAiSummary({ repoName }: ProjectAiSummaryProps) {
           <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_72%,transparent)] p-4">
             <p className="text-sm leading-6 text-[var(--accent-warm)]">{error}</p>
           </div>
-        ) : summary && summary.source !== "fallback" ? (
+        ) : summary ? (
           <>
+            {summary.source === "fallback" ? (
+              <div className="rounded-lg border border-[var(--accent-warm)] bg-[color-mix(in_srgb,var(--accent-warm)_10%,var(--panel))] p-3">
+                <p className="text-sm font-semibold leading-6 text-[var(--accent-warm)]">
+                  AI 简介暂未生成成功，下面是根据仓库元数据生成的备用摘要。
+                </p>
+                {summary.error ? (
+                  <p className="mt-1 break-words text-xs leading-5 text-[var(--muted)]">{summary.error}</p>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_72%,transparent)] px-3 py-2">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[var(--muted)]">来源</p>
               <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{summary.source}</p>
@@ -108,9 +119,7 @@ export function ProjectAiSummary({ repoName }: ProjectAiSummaryProps) {
           </>
         ) : (
           <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_72%,transparent)] p-4">
-            <p className="text-sm leading-6 text-[var(--muted)]">
-              {summary?.source === "fallback" ? "AI 简介暂未生成成功" : "暂无 AI 简介"}
-            </p>
+            <p className="text-sm leading-6 text-[var(--muted)]">暂无 AI 简介</p>
           </div>
         )}
       </div>

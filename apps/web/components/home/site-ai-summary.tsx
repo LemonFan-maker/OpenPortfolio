@@ -72,6 +72,17 @@ export function SiteAiSummary() {
           </div>
         ) : summary ? (
           <div className="space-y-5">
+            {summary.source === "fallback" ? (
+              <div className="rounded-lg border border-[var(--accent-warm)] bg-[color-mix(in_srgb,var(--accent-warm)_10%,var(--panel))] p-4">
+                <p className="text-sm font-semibold leading-6 text-[var(--accent-warm)]">
+                  AI 履历暂未生成成功，下面是根据项目元数据生成的备用摘要。
+                </p>
+                {summary.error ? (
+                  <p className="mt-1 break-words text-xs leading-5 text-[var(--muted)]">{summary.error}</p>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="rounded-lg border border-[var(--line)] bg-[color-mix(in_srgb,var(--panel)_72%,transparent)] p-4">
               <p className="break-words text-base font-semibold leading-7 text-[var(--foreground)]">
                 {summary.summary.shortSummary}
