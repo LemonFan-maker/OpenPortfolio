@@ -39,6 +39,7 @@ type GitHubService struct {
 	featuredRepos   []string
 	hiddenRepoNames []string
 	hiddenRepos     map[string]bool
+	flights         *flightGroup
 }
 
 func NewGitHubService(cfg config.Config, store *cache.Store) *GitHubService {
@@ -59,6 +60,7 @@ func NewGitHubService(cfg config.Config, store *cache.Store) *GitHubService {
 		featuredRepos:   copyRepoNameList(cfg.FeaturedRepos),
 		hiddenRepoNames: copyRepoNameList(cfg.HiddenRepoNames),
 		hiddenRepos:     copyRepoNameMap(cfg.HiddenRepos),
+		flights:         newFlightGroup(),
 	}
 }
 
@@ -398,6 +400,12 @@ func (s *GitHubService) RefreshActivity(ctx context.Context) error {
 }
 
 func (s *GitHubService) listRawRepos(ctx context.Context, force bool) ([]model.GitHubRepo, error) {
+	return flightDo(s.flights, fmt.Sprintf("github:repos:raw:%t", force), func() ([]model.GitHubRepo, error) {
+		return s.listRawReposOnce(ctx, force)
+	})
+}
+
+func (s *GitHubService) listRawReposOnce(ctx context.Context, force bool) ([]model.GitHubRepo, error) {
 	if s.cfg.GitHubUsername == "" {
 		return nil, errors.New("GITHUB_USERNAME is not configured")
 	}
@@ -514,6 +522,13 @@ func (s *GitHubService) allRepoLanguages(ctx context.Context, repos []model.GitH
 }
 
 func (s *GitHubService) repoLanguages(ctx context.Context, repoName string, force bool) (map[string]int64, error) {
+	key := fmt.Sprintf("github:languages:%t:%s", force, strings.ToLower(repoName))
+	return flightDo(s.flights, key, func() (map[string]int64, error) {
+		return s.repoLanguagesOnce(ctx, repoName, force)
+	})
+}
+
+func (s *GitHubService) repoLanguagesOnce(ctx context.Context, repoName string, force bool) (map[string]int64, error) {
 	cacheKey := fmt.Sprintf("github:languages:%s:%s", s.cfg.GitHubUsername, strings.ToLower(repoName))
 	if !force {
 		var cached map[string]int64

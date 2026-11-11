@@ -137,3 +137,42 @@ func TestListReposFetchesLanguagesWithBoundedConcurrency(t *testing.T) {
 		}
 	}
 }
+
+func TestListRawReposCoalescesConcurrentColdRequests(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/tester/repos" {
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		time.Sleep(20 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode([]map[string]any{testRepoPayload("demo")})
+	}))
+	defer server.Close()
+
+	service := newTestGitHubService(server.URL)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			repos, err := service.listRawRepos(context.Background(), true)
+			if err != nil {
+				t.Errorf("listRawRepos: %v", err)
+				return
+			}
+			if len(repos) != 1 {
+				t.Errorf("repos = %d, want 1", len(repos))
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("GitHub repo calls = %d, want 1 after single-flight coalescing", got)
+	}
+}

@@ -38,6 +38,8 @@ const (
 	defaultProjectSummaryConcurrency = 3
 	defaultProjectSummaryTimeout     = 3 * time.Minute
 	defaultSiteSummaryTimeout        = 3 * time.Minute
+	projectSummaryCacheTTL           = 30 * 24 * time.Hour
+	siteSummaryCacheTTL              = 7 * 24 * time.Hour
 )
 
 var errEmptyAIContent = errors.New("ai api returned empty message content")
@@ -218,7 +220,7 @@ func (s *AIService) projectSummaryResultOnce(ctx context.Context, repoName strin
 		return fallbackProjectSummaryResult(repoName, detail, tree, createdAt, turns, err), nil
 	}
 
-	_ = s.cache.SetJSON(ctx, cacheKey, summary, 0)
+	_ = s.cache.SetJSON(ctx, cacheKey, summary, projectSummaryCacheTTL)
 	return projectSummaryResult{
 		Summary: summary,
 		Debug: model.ProjectSummaryDebug{
@@ -296,7 +298,7 @@ func (s *AIService) siteSummaryResultOnce(ctx context.Context, force bool) (site
 		return fallbackSiteSummaryResult(createdAt, projects, &languages, &activity, err), nil
 	}
 
-	_ = s.cache.SetJSON(ctx, cacheKey, summary, 0)
+	_ = s.cache.SetJSON(ctx, cacheKey, summary, siteSummaryCacheTTL)
 	return siteSummaryResult{
 		Summary: summary,
 		Status: model.SiteSummaryStatus{

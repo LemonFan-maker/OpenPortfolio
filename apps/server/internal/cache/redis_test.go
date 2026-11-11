@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -141,5 +142,23 @@ func TestDisabledRedisDoesNotQueuePatternDeletes(t *testing.T) {
 	}
 	if len(store.pendingDeletes) != 0 {
 		t.Fatalf("pending deletes = %#v, want none when Redis is disabled", store.pendingDeletes)
+	}
+}
+
+func TestMemoryFallbackBoundsEntryCount(t *testing.T) {
+	ctx := context.Background()
+	store := NewStore(config.Config{RedisAddr: ""})
+
+	for i := 0; i < maxMemoryItems+50; i++ {
+		if err := store.SetJSON(ctx, fmt.Sprintf("item:%d", i), map[string]int{"v": i}, time.Minute); err != nil {
+			t.Fatalf("SetJSON %d: %v", i, err)
+		}
+	}
+
+	store.memory.mu.RLock()
+	count := len(store.memory.items)
+	store.memory.mu.RUnlock()
+	if count > maxMemoryItems {
+		t.Fatalf("memory items = %d, want at most %d", count, maxMemoryItems)
 	}
 }

@@ -16,6 +16,8 @@ import (
 )
 
 const redisDegradedTTL = 30 * time.Second
+const maxMemoryItems = 2000
+const maxMemoryLists = 512
 
 var errRedisDegraded = errors.New("redis circuit is open")
 
@@ -343,6 +345,7 @@ func (s *Store) setMemoryJSON(key string, value any, ttl time.Duration) error {
 	s.memory.mu.Lock()
 	defer s.memory.mu.Unlock()
 	s.memory.items[key] = memoryItem{raw: raw, expiresAt: expiresAt}
+	trimMemoryStoreLocked(s.memory, time.Now())
 	return nil
 }
 
@@ -389,6 +392,7 @@ func (s *Store) pushMemoryJSON(key string, value any, limit int64) error {
 		list.items = list.items[:limit]
 	}
 	s.memory.lists[key] = list
+	trimMemoryStoreLocked(s.memory, time.Now())
 	return nil
 }
 
@@ -412,6 +416,30 @@ func (s *Store) listMemoryJSON(key string, target any, limit int64) error {
 	}
 	raw := []byte("[" + strings.Join(parts, ",") + "]")
 	return json.Unmarshal(raw, target)
+}
+
+func trimMemoryStoreLocked(store *memoryStore, now time.Time) {
+	if len(store.items) > maxMemoryItems {
+		for key, item := range store.items {
+			if !item.expiresAt.IsZero() && now.After(item.expiresAt) {
+				delete(store.items, key)
+			}
+		}
+		for key := range store.items {
+			if len(store.items) <= maxMemoryItems {
+				break
+			}
+			delete(store.items, key)
+		}
+	}
+	if len(store.lists) > maxMemoryLists {
+		for key := range store.lists {
+			if len(store.lists) <= maxMemoryLists {
+				break
+			}
+			delete(store.lists, key)
+		}
+	}
 }
 
 func memoryPatternMatch(pattern string, key string) bool {
