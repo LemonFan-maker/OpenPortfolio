@@ -120,7 +120,7 @@ func refreshLanguages(githubService *service.GitHubService, store *cache.Store) 
 
 func refreshActivity(githubService *service.GitHubService, store *cache.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		runCacheOperation(c, store, "refresh", "github:activity", "刷新贡献活动", []string{"github:activity:*"}, func() (int64, error) {
+		runCacheOperation(c, store, "refresh", "github:activity", "刷新贡献活动", []string{"github:activity:*", "github:activity-detail:*"}, func() (int64, error) {
 			return 0, githubService.RefreshActivity(c.Request.Context())
 		})
 	}
@@ -173,6 +173,7 @@ func refreshAll(githubService *service.GitHubService, store *cache.Store) gin.Ha
 			"github:file:*",
 			"github:file-content:*",
 			"github:activity:*",
+			"github:activity-detail:*",
 			"ai:summary:*",
 			"ai:site-summary:*",
 		}
@@ -313,6 +314,7 @@ func saveHiddenProjects(githubService *service.GitHubService, store *cache.Store
 		}
 
 		githubService.SetHiddenRepos(names)
+		_, _ = store.DeletePatterns(c.Request.Context(), "github:activity:*", "github:activity-detail:*")
 		if err := githubService.ClearRepositories(c.Request.Context(), names); err != nil {
 			response.Error(c, http.StatusBadGateway, err.Error())
 			return

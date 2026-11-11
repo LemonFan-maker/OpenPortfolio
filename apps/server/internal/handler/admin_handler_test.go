@@ -45,6 +45,12 @@ func TestSaveHiddenProjectsClearsRepoCaches(t *testing.T) {
 	if err := store.SetJSON(ctx, "github:readme:tester:demo", map[string]string{"value": "cached"}, time.Minute); err != nil {
 		t.Fatalf("seed readme cache: %v", err)
 	}
+	if err := store.SetJSON(ctx, "github:activity:tester", map[string]string{"value": "cached"}, time.Minute); err != nil {
+		t.Fatalf("seed activity cache: %v", err)
+	}
+	if err := store.SetJSON(ctx, "github:activity-detail:tester:2026-01-01", map[string]string{"value": "cached"}, time.Minute); err != nil {
+		t.Fatalf("seed activity detail cache: %v", err)
+	}
 	if err := store.SetJSON(ctx, "github:repo:tester:keep", map[string]string{"value": "cached"}, time.Minute); err != nil {
 		t.Fatalf("seed keep cache: %v", err)
 	}
@@ -61,7 +67,7 @@ func TestSaveHiddenProjectsClearsRepoCaches(t *testing.T) {
 		t.Fatalf("status code = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
 
-	for _, key := range []string{"github:repo:tester:demo", "github:readme:tester:demo"} {
+	for _, key := range []string{"github:repo:tester:demo", "github:readme:tester:demo", "github:activity:tester", "github:activity-detail:tester:2026-01-01"} {
 		var value map[string]string
 		ok, err := store.GetJSON(ctx, key, &value)
 		if err != nil {

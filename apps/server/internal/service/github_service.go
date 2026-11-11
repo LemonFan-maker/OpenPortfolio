@@ -312,10 +312,14 @@ func (s *GitHubService) CommitActivityDetail(ctx context.Context, date string, f
 	}
 	normalizedDate := parsedDate.Format("2006-01-02")
 
-	cacheKey := fmt.Sprintf("github:activity:%s:%s", s.cfg.GitHubUsername, normalizedDate)
+	cacheKey := fmt.Sprintf("github:activity-detail:%s:%s", s.cfg.GitHubUsername, normalizedDate)
 	if !force {
 		var cached model.CommitActivityDetail
 		if ok, err := s.cache.GetJSON(ctx, cacheKey, &cached); err == nil && ok {
+			if filtered, changed := filterHiddenCommitRecords(cached.Commits, s.hiddenRepoMap()); changed {
+				cached.Commits = filtered
+				cached.TotalCommits = len(filtered)
+			}
 			return cached, nil
 		}
 	}
@@ -332,7 +336,17 @@ func (s *GitHubService) CommitActivityDetail(ctx context.Context, date string, f
 	}
 
 	records := make([]model.CommitRecord, 0, len(search.Items))
+	filtered := false
 	for _, item := range search.Items {
+		repoName := item.Repository.Name
+		if repoName == "" {
+			repoName = repoNameFromFullName(item.Repository.FullName)
+		}
+		if item.Repository.Private || s.isHiddenRepo(repoName) {
+			filtered = true
+			continue
+		}
+
 		record := model.CommitRecord{
 			SHA:         item.SHA,
 			Message:     firstLine(item.Commit.Message),
@@ -354,9 +368,13 @@ func (s *GitHubService) CommitActivityDetail(ctx context.Context, date string, f
 		records = append(records, record)
 	}
 
+	totalCommits := search.TotalCount
+	if filtered {
+		totalCommits = len(records)
+	}
 	result := model.CommitActivityDetail{
 		Date:         normalizedDate,
-		TotalCommits: search.TotalCount,
+		TotalCommits: totalCommits,
 		Commits:      records,
 		Truncated:    search.TotalCount > len(records),
 	}
@@ -683,6 +701,31 @@ func sortFeaturedProjectCards(cards []model.ProjectCard, featured []string) {
 	})
 }
 
+func repoNameFromFullName(fullName string) string {
+	trimmed := strings.TrimSpace(fullName)
+	if index := strings.LastIndex(trimmed, "/"); index >= 0 && index+1 < len(trimmed) {
+		return trimmed[index+1:]
+	}
+	return trimmed
+}
+
+func filterHiddenCommitRecords(records []model.CommitRecord, hidden map[string]bool) ([]model.CommitRecord, bool) {
+	if len(hidden) == 0 {
+		return records, false
+	}
+
+	filtered := make([]model.CommitRecord, 0, len(records))
+	changed := false
+	for _, record := range records {
+		if hidden[strings.ToLower(repoNameFromFullName(record.Repository))] {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	return filtered, changed
+}
+
 func filterHiddenRepos(repos []model.GitHubRepo, hidden map[string]bool) []model.GitHubRepo {
 	if len(hidden) == 0 {
 		return repos
@@ -929,6 +972,7 @@ type githubCommitSearchItem struct {
 	Repository struct {
 		Name     string `json:"name"`
 		FullName string `json:"full_name"`
+		Private  bool   `json:"private"`
 	} `json:"repository"`
 }
 
