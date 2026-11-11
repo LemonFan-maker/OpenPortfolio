@@ -120,7 +120,7 @@ func (s *GitHubService) RepoFile(ctx context.Context, repoName string, filePath 
 		return model.RepoFile{}, err
 	}
 	if len(content) > maxRepoFileContentChars {
-		content = strings.TrimSpace(content[:maxRepoFileContentChars]) + "\n..."
+		content = strings.TrimSpace(truncateUTF8(content, maxRepoFileContentChars)) + "\n..."
 		truncated = true
 	}
 

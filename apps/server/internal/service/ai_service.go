@@ -1210,7 +1210,7 @@ func previewText(value string, limit int) string {
 	if len(trimmed) <= limit {
 		return trimmed
 	}
-	return strings.TrimSpace(trimmed[:limit]) + "..."
+	return strings.TrimSpace(truncateUTF8(trimmed, limit)) + "..."
 }
 
 func emptyFallback(value string, fallback string) string {

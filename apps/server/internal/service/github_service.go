@@ -845,7 +845,7 @@ func truncatePatch(patch string) string {
 	if len(patch) <= maxCommitPatchLength {
 		return patch
 	}
-	return strings.TrimSpace(patch[:maxCommitPatchLength]) + "\n..."
+	return strings.TrimSpace(truncateUTF8(patch, maxCommitPatchLength)) + "\n..."
 }
 
 func summarizeReadme(content string, limit int) string {
@@ -853,7 +853,7 @@ func summarizeReadme(content string, limit int) string {
 	if len(cleaned) <= limit {
 		return cleaned
 	}
-	return strings.TrimSpace(cleaned[:limit]) + "..."
+	return strings.TrimSpace(truncateUTF8(cleaned, limit)) + "..."
 }
 
 const githubContributionQuery = `
