@@ -6,7 +6,7 @@ Portfolio Hub 是一个个人 GitHub 项目展示站，用于聚合公开仓库�
 
 - 前端：Next.js 15、React 19、TypeScript、Tailwind CSS、Recharts、Framer Motion、Lucide React
 - 后端：Go 1.23、Gin
-- 缓存：Redis，Redis 不可用时自动降级为进程内存缓存
+- 缓存：Redis；运行中故障时熔断 30 秒并降级为进程内存，随后自动探测恢复
 - 数据源：GitHub REST API、GitHub GraphQL API、OpenAI 兼容 AI API
 - 包管理：npm workspaces
 - 容器化：前端和后端分别提供 Dockerfile
@@ -51,7 +51,7 @@ Portfolio Hub 是一个个人 GitHub 项目展示站，用于聚合公开仓库�
 - Node.js 22 或兼容版本
 - npm 10 或兼容版本
 - Go 1.23 或兼容版本
-- Redis，开发阶段可选；未启动 Redis 时后端会使用内存缓存
+- Redis，开发阶段可选；未启动 Redis 时后端会使用内存缓存，运行中故障会熔断 30 秒
 - GitHub Personal Access Token，建议至少具备读取公开仓库和贡献数据所需权限
 - OpenAI 兼容 API Key，只有使用 AI 摘要能力时必需
 
@@ -92,8 +92,8 @@ npm run dev:web
 默认访问地址：
 
 - 前端：`http://localhost:3000`
-- 后端：`http://localhost:8080`
-- 健康检查：`http://localhost:8080/api/health`
+- 后端：`http://localhost:7020`
+- 健康检查：`http://localhost:7020/api/health`
 - 管理后台：`http://localhost:3000/admin`
 
 ## 环境变量
@@ -114,12 +114,13 @@ npm run dev:web
 | `SITE_DESCRIPTION` | 否 | 后端站点描述。 |
 | `ADMIN_PASSWORD` | 是 | 管理后台登录密码，生产环境必须修改默认值。 |
 | `JWT_SECRET` | 是 | 管理后台 JWT 签名密钥，生产环境必须使用足够长的随机值。 |
-| `REDIS_ADDR` | 否 | Redis 地址，例如 `localhost:6379`。为空时禁用 Redis。 |
+| `REDIS_ADDR` | 否 | Redis 地址，例如 `localhost:6379`。为空时禁用 Redis；连接失败时进入 30 秒熔断并降级到内存。 |
 | `REDIS_PASSWORD` | 否 | Redis 密码。 |
 | `REDIS_DB` | 否 | Redis 数据库编号。 |
-| `SERVER_PORT` | 否 | 后端监听端口，默认 `8080`。 |
+| `SERVER_PORT` | 否 | 后端监听端口，默认 `7020`。 |
 | `WEB_ORIGIN` | 否 | CORS 允许的前端来源，默认 `http://localhost:3000`。 |
-| `NEXT_PUBLIC_API_BASE_URL` | 是 | 前端访问后端 API 的基础地址。 |
+| `API_BASE_URL` | 否 | 服务端请求后端的内部地址，默认 `http://localhost:7020`；Docker 中为 `http://server:7020`。 |
+| `NEXT_PUBLIC_API_BASE_URL` | 否 | 浏览器访问 API 的可选绝对地址；留空表示使用同源 `/api`。 |
 | `NEXT_PUBLIC_BLOG_URL` | 否 | 前端展示的博客链接。 |
 | `NEXT_PUBLIC_SITE_NAME` | 否 | 前端站点名称。 |
 | `NEXT_PUBLIC_SITE_DESCRIPTION` | 否 | 前端站点描述。 |
@@ -138,6 +139,7 @@ npm run dev:web
 | `npm run lint:web` | 运行前端 lint。 |
 | `npm run dev:server` | 启动 Go API 服务。 |
 | `npm run test:server` | 运行 Go 后端测试。 |
+| `npm run test:web` | 运行前端 Vitest 测试。 |
 | `npm run fmt:server` | 格式化 Go 后端代码。 |
 
 也可以进入子目录执行原生命令：
@@ -186,7 +188,7 @@ gofmt -w ./cmd ./internal
 核心模块：
 
 - `internal/config`：读取环境变量，自动加载 `.env`，支持管理后台读写 `.env`。
-- `internal/cache`：封装 Redis JSON 缓存、列表记录和按 pattern 删除；Redis 不可用时使用内存实现。
+- `internal/cache`：封装 Redis JSON 缓存、列表记录和按 pattern 删除；Redis 不可用时使用内存实现，运行中故障会触发 30 秒熔断并自动探测恢复。
 - `internal/handler`：注册 HTTP 路由并处理请求参数、响应和错误。
 - `internal/service/github_service.go`：读取 GitHub 仓库、README、语言统计、贡献活动和 commit 详情。
 - `internal/service/ai_service.go`：基于仓库详情和文件信息生成项目摘要、站点摘要及调试日志。
@@ -265,7 +267,7 @@ Authorization: Bearer <token>
 
 ## 缓存策略
 
-后端会优先连接 Redis；如果 `REDIS_ADDR` 为空或 Redis 连接失败，则使用进程内存缓存。内存缓存适合本地开发，不适合多实例生产部署。
+后端会优先连接 Redis；如果 `REDIS_ADDR` 为空，则只使用进程内存缓存。Redis 连接失败或运行中出错时，缓存层会进入 30 秒熔断：期间读写走进程内存，pattern 删除会记录并在恢复后补执行；30 秒后下一次操作会重新探测 Redis，成功后自动恢复。健康检查的 `redis` 字段会返回 `ok`、`degraded` 或 `disabled`。内存缓存适合本地开发，不适合多实例生产部署。
 
 当前缓存覆盖的主要内容：
 
@@ -284,6 +286,7 @@ Authorization: Bearer <token>
 
 ```bash
 npm run lint:web
+npm run test:web
 npm run build:web
 ```
 
@@ -294,7 +297,7 @@ npm run fmt:server
 npm run test:server
 ```
 
-提交前建议至少运行后端测试和前端构建。涉及 UI 或数据展示逻辑时，还应手动打开首页、项目页、活动页和管理后台做一次基本回归。
+提交前建议至少运行后端测试、前端测试和前端构建。涉及 UI 或数据展示逻辑时，还应手动打开首页、项目页、活动页和管理后台做一次基本回归。
 
 ## Docker 构建
 
@@ -310,4 +313,10 @@ docker build -f apps/server/Dockerfile -t portfolio-hub-server .
 docker build -f apps/web/Dockerfile -t portfolio-hub-web .
 ```
 
-运行容器时需要按实际部署环境传入 `.env` 中的配置。前端构建会读取 `NEXT_PUBLIC_*` 变量，后端运行时读取 GitHub、AI、Redis、管理后台和 CORS 配置。
+推荐使用 `deploy/docker-compose.yaml` 启动完整栈：
+
+```bash
+docker compose -f deploy/docker-compose.yaml up --build
+```
+
+Compose 会启动 nginx、前端、后端和 Redis。浏览器和 nginx 使用同源 `/api`，nginx 将 `/api/` 转发到 `server:7020`，其余请求转发到 `web:3000`；只有 nginx 暴露 80 端口。运行容器时需要按实际部署环境传入 `.env` 中的配置。前端构建会读取 `API_BASE_URL` 和 `NEXT_PUBLIC_*` 变量，后端运行时读取 GitHub、AI、Redis、管理后台和 CORS 配置。

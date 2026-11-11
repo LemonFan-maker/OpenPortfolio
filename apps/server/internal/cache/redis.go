@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"path"
 	"strings"
@@ -14,9 +15,18 @@ import (
 	"portfolio-hub/apps/server/internal/config"
 )
 
+const redisDegradedTTL = 30 * time.Second
+
+var errRedisDegraded = errors.New("redis circuit is open")
+
 type Store struct {
 	client *redis.Client
 	memory *memoryStore
+
+	mu             sync.RWMutex
+	degradedUntil  time.Time
+	pendingDeletes []string
+	now            func() time.Time
 }
 
 type memoryItem struct {
@@ -42,26 +52,30 @@ func newMemoryStore() *memoryStore {
 }
 
 func NewStore(cfg config.Config) *Store {
-	store := &Store{memory: newMemoryStore()}
+	store := &Store{memory: newMemoryStore(), now: time.Now}
 	if cfg.RedisAddr == "" {
 		return store
 	}
 
 	client := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+		Addr:         cfg.RedisAddr,
+		Password:     cfg.RedisPassword,
+		DB:           cfg.RedisDB,
+		DialTimeout:  2 * time.Second,
+		ReadTimeout:  2 * time.Second,
+		WriteTimeout: 2 * time.Second,
+		MaxRetries:   1,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 700*time.Millisecond)
 	defer cancel()
 
+	store.client = client
 	if err := client.Ping(ctx).Err(); err != nil {
-		log.Printf("redis disabled: %v", err)
-		return store
+		log.Printf("redis unavailable; using memory fallback for %s: %v", redisDegradedTTL, err)
+		store.markDegraded()
 	}
 
-	store.client = client
 	return store
 }
 
@@ -69,58 +83,96 @@ func (s *Store) Enabled() bool {
 	return s != nil && s.client != nil
 }
 
+func (s *Store) Degraded() bool {
+	if s == nil || s.client == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentTime().Before(s.degradedUntil)
+}
+
 func (s *Store) Fallback() bool {
-	return s != nil && s.client == nil && s.memory != nil
+	return s != nil && s.memory != nil && !s.useRedis()
 }
 
 func (s *Store) Ping(ctx context.Context) error {
 	if !s.Enabled() {
 		return redis.Nil
 	}
-	return s.client.Ping(ctx).Err()
-}
-
-func (s *Store) GetJSON(ctx context.Context, key string, target any) (bool, error) {
-	if !s.Enabled() {
-		return s.getMemoryJSON(key, target)
+	if s.Degraded() {
+		return errRedisDegraded
 	}
-
-	raw, err := s.client.Get(ctx, key).Bytes()
-	if err == redis.Nil {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-
-	if err := json.Unmarshal(raw, target); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func (s *Store) SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
-	if !s.Enabled() {
-		return s.setMemoryJSON(key, value, ttl)
-	}
-
-	raw, err := json.Marshal(value)
-	if err != nil {
+	if err := s.client.Ping(ctx).Err(); err != nil {
+		s.markDegraded()
 		return err
 	}
-	return s.client.Set(ctx, key, raw, ttl).Err()
+	s.markHealthy()
+	return nil
 }
 
-func (s *Store) DeletePattern(ctx context.Context, pattern string) error {
-	_, err := s.DeletePatternCount(ctx, pattern)
-	return err
+func (s *Store) useRedis() bool {
+	if s == nil || s.client == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return !s.currentTime().Before(s.degradedUntil)
 }
 
-func (s *Store) DeletePatternCount(ctx context.Context, pattern string) (int64, error) {
-	if !s.Enabled() {
-		return s.deleteMemoryPattern(pattern), nil
+func (s *Store) currentTime() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+func (s *Store) markDegraded() {
+	s.mu.Lock()
+	wasDegraded := s.currentTime().Before(s.degradedUntil)
+	s.degradedUntil = s.currentTime().Add(redisDegradedTTL)
+	s.mu.Unlock()
+	if !wasDegraded {
+		log.Printf("redis degraded; using memory fallback for %s", redisDegradedTTL)
+	}
+}
+
+func (s *Store) markHealthy() {
+	s.mu.Lock()
+	s.degradedUntil = time.Time{}
+	pending := s.pendingDeletes
+	s.pendingDeletes = nil
+	s.mu.Unlock()
+
+	if len(pending) == 0 {
+		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, pattern := range pending {
+		if _, err := s.deleteRedisPattern(ctx, pattern); err != nil {
+			s.recordPendingDelete(pattern)
+		}
+	}
+}
+
+func (s *Store) recordPendingDelete(pattern string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, existing := range s.pendingDeletes {
+		if existing == pattern {
+			return
+		}
+	}
+	if len(s.pendingDeletes) >= 64 {
+		s.pendingDeletes = s.pendingDeletes[1:]
+	}
+	s.pendingDeletes = append(s.pendingDeletes, pattern)
+}
+
+func (s *Store) deleteRedisPattern(ctx context.Context, pattern string) (int64, error) {
 	var deleted int64
 	iter := s.client.Scan(ctx, 0, pattern, 100).Iterator()
 	for iter.Next(ctx) {
@@ -131,6 +183,66 @@ func (s *Store) DeletePatternCount(ctx context.Context, pattern string) (int64, 
 		deleted += count
 	}
 	return deleted, iter.Err()
+}
+
+func (s *Store) GetJSON(ctx context.Context, key string, target any) (bool, error) {
+	if !s.useRedis() {
+		return s.getMemoryJSON(key, target)
+	}
+
+	raw, err := s.client.Get(ctx, key).Bytes()
+	if err == redis.Nil {
+		s.markHealthy()
+		return false, nil
+	}
+	if err != nil {
+		s.markDegraded()
+		return s.getMemoryJSON(key, target)
+	}
+	s.markHealthy()
+
+	if err := json.Unmarshal(raw, target); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
+	if !s.useRedis() {
+		return s.setMemoryJSON(key, value, ttl)
+	}
+
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if err := s.client.Set(ctx, key, raw, ttl).Err(); err != nil {
+		s.markDegraded()
+		return s.setMemoryJSON(key, value, ttl)
+	}
+	s.markHealthy()
+	return nil
+}
+
+func (s *Store) DeletePattern(ctx context.Context, pattern string) error {
+	_, err := s.DeletePatternCount(ctx, pattern)
+	return err
+}
+
+func (s *Store) DeletePatternCount(ctx context.Context, pattern string) (int64, error) {
+	if !s.useRedis() {
+		s.recordPendingDelete(pattern)
+		return s.deleteMemoryPattern(pattern), nil
+	}
+
+	deleted, err := s.deleteRedisPattern(ctx, pattern)
+	if err != nil {
+		s.markDegraded()
+		s.recordPendingDelete(pattern)
+		return s.deleteMemoryPattern(pattern), nil
+	}
+	s.markHealthy()
+	return deleted, nil
 }
 
 func (s *Store) DeletePatterns(ctx context.Context, patterns ...string) (int64, error) {
@@ -146,7 +258,7 @@ func (s *Store) DeletePatterns(ctx context.Context, patterns ...string) (int64, 
 }
 
 func (s *Store) PushJSON(ctx context.Context, key string, value any, limit int64) error {
-	if !s.Enabled() {
+	if !s.useRedis() {
 		return s.pushMemoryJSON(key, value, limit)
 	}
 
@@ -155,16 +267,21 @@ func (s *Store) PushJSON(ctx context.Context, key string, value any, limit int64
 		return err
 	}
 	if err := s.client.LPush(ctx, key, raw).Err(); err != nil {
-		return err
+		s.markDegraded()
+		return s.pushMemoryJSON(key, value, limit)
 	}
 	if limit > 0 {
-		return s.client.LTrim(ctx, key, 0, limit-1).Err()
+		if err := s.client.LTrim(ctx, key, 0, limit-1).Err(); err != nil {
+			s.markDegraded()
+			return nil
+		}
 	}
+	s.markHealthy()
 	return nil
 }
 
 func (s *Store) ListJSON(ctx context.Context, key string, target any, limit int64) error {
-	if !s.Enabled() {
+	if !s.useRedis() {
 		return s.listMemoryJSON(key, target, limit)
 	}
 
@@ -174,8 +291,10 @@ func (s *Store) ListJSON(ctx context.Context, key string, target any, limit int6
 	}
 	rawItems, err := s.client.LRange(ctx, key, 0, stop).Result()
 	if err != nil {
-		return err
+		s.markDegraded()
+		return s.listMemoryJSON(key, target, limit)
 	}
+	s.markHealthy()
 
 	raw := []byte("[" + strings.Join(rawItems, ",") + "]")
 	return json.Unmarshal(raw, target)

@@ -21,8 +21,11 @@ func TestStoreDisabledWhenRedisAddrIsEmpty(t *testing.T) {
 func TestStoreDisablesWhenRedisIsUnavailable(t *testing.T) {
 	started := time.Now()
 	store := NewStore(config.Config{RedisAddr: "127.0.0.1:0"})
-	if store.Enabled() {
-		t.Fatalf("expected store to be disabled when redis connection fails")
+	if !store.Enabled() {
+		t.Fatalf("expected redis client to be retained for recovery")
+	}
+	if !store.Degraded() {
+		t.Fatalf("expected store to be degraded when redis connection fails")
 	}
 	if !store.Fallback() {
 		t.Fatalf("expected memory fallback when redis connection fails")

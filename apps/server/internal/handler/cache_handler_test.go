@@ -45,6 +45,36 @@ func TestHealthReportsRedisDisabledWithoutRedis(t *testing.T) {
 	}
 }
 
+func TestHealthReportsRedisDegradedWhenUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := cache.NewStore(config.Config{RedisAddr: "127.0.0.1:0"})
+
+	router := gin.New()
+	router.GET("/api/health", Health(store))
+
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", recorder.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Status string `json:"status"`
+			Redis  string `json:"redis"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !body.Success || body.Data.Status != "ok" || body.Data.Redis != "degraded" {
+		t.Fatalf("unexpected health body: %#v", body)
+	}
+}
+
 func TestAdminCacheClearSucceedsWithoutRedis(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.Config{

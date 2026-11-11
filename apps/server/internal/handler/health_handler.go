@@ -18,8 +18,10 @@ func Health(store *cache.Store) gin.HandlerFunc {
 		redisStatus := "disabled"
 		if store.Enabled() {
 			redisStatus = "ok"
-			if err := store.Ping(ctx); err != nil {
-				redisStatus = "error"
+			if store.Degraded() {
+				redisStatus = "degraded"
+			} else if err := store.Ping(ctx); err != nil {
+				redisStatus = "degraded"
 			}
 		}
 
