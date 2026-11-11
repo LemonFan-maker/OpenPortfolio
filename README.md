@@ -119,7 +119,7 @@ npm run dev:web
 | `REDIS_DB` | 否 | Redis 数据库编号。 |
 | `SERVER_PORT` | 否 | 后端监听端口，默认 `7020`。 |
 | `WEB_ORIGIN` | 否 | CORS 允许的前端来源，默认 `http://localhost:3000`。 |
-| `API_BASE_URL` | 否 | 服务端请求后端的内部地址，默认 `http://localhost:7020`；Docker 中为 `http://server:7020`。 |
+| `API_BASE_URL` | 否 | 前端服务端重写 `/api` 的目标地址，默认 `http://localhost:7020`；Docker 中为 `http://server:7020`。 |
 | `NEXT_PUBLIC_API_BASE_URL` | 否 | 浏览器访问 API 的可选绝对地址；留空表示使用同源 `/api`。 |
 | `NEXT_PUBLIC_BLOG_URL` | 否 | 前端展示的博客链接。 |
 | `NEXT_PUBLIC_SITE_NAME` | 否 | 前端站点名称。 |
@@ -264,6 +264,8 @@ AI 摘要请求示例：
 ```text
 Authorization: Bearer <token>
 ```
+
+登录失败按客户端 IP 限流：5 分钟内最多允许 5 次失败尝试，超限返回 `429` 和 `Retry-After`。Token 与当前 `ADMIN_PASSWORD` 绑定，修改管理员密码后，已签发的 token 会立即失效，需要重新登录。
 
 ## 缓存策略
 
