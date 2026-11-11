@@ -90,7 +90,7 @@ func TestAdminCacheClearSucceedsWithoutRedis(t *testing.T) {
 	router := gin.New()
 	RegisterAdminRoutes(router, cfg, store, githubService, aiService)
 
-	token, err := middleware.NewToken(cfg.JWTSecret, time.Hour)
+	token, err := middleware.NewToken(cfg.JWTSecret, cfg.AdminPassword, time.Hour)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestAdminCacheRecordsUseMemoryFallbackWithoutRedis(t *testing.T) {
 	router := gin.New()
 	RegisterAdminRoutes(router, cfg, store, githubService, aiService)
 
-	token, err := middleware.NewToken(cfg.JWTSecret, time.Hour)
+	token, err := middleware.NewToken(cfg.JWTSecret, cfg.AdminPassword, time.Hour)
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}

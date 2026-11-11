@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,7 +27,7 @@ func RegisterAdminRoutes(router *gin.Engine, cfg config.Config, store *cache.Sto
 	router.POST("/api/admin/login", login(cfg))
 
 	admin := router.Group("/api/admin")
-	admin.Use(middleware.RequireAuth(cfg.JWTSecret))
+	admin.Use(middleware.RequireAuth(cfg.JWTSecret, cfg.AdminPassword))
 	admin.GET("/cache/records", cacheRecords(store))
 	admin.POST("/cache/refresh/repos", refreshRepos(githubService, store))
 	admin.POST("/cache/refresh/languages", refreshLanguages(githubService, store))
@@ -44,7 +48,17 @@ func RegisterAdminRoutes(router *gin.Engine, cfg config.Config, store *cache.Sto
 }
 
 func login(cfg config.Config) gin.HandlerFunc {
+	limiter := newLoginLimiter(loginAttemptLimit, loginAttemptWindow, time.Now)
 	return func(c *gin.Context) {
+		clientIP := c.ClientIP()
+		if !limiter.allow(clientIP) {
+			if retry := limiter.retryAfter(clientIP); retry > 0 {
+				c.Header("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
+			}
+			response.Error(c, http.StatusTooManyRequests, "too many login attempts")
+			return
+		}
+
 		var req struct {
 			Password string `json:"password" binding:"required"`
 		}
@@ -52,17 +66,26 @@ func login(cfg config.Config) gin.HandlerFunc {
 			response.Error(c, http.StatusBadRequest, err.Error())
 			return
 		}
-		if req.Password != cfg.AdminPassword {
+		if !passwordMatches(req.Password, cfg.AdminPassword) {
+			limiter.fail(clientIP)
 			response.Error(c, http.StatusUnauthorized, "invalid password")
 			return
 		}
-		token, err := middleware.NewToken(cfg.JWTSecret, 24*time.Hour)
+
+		limiter.reset(clientIP)
+		token, err := middleware.NewToken(cfg.JWTSecret, cfg.AdminPassword, 24*time.Hour)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, err.Error())
 			return
 		}
 		response.OK(c, gin.H{"token": token})
 	}
+}
+
+func passwordMatches(input string, expected string) bool {
+	inputHash := sha256.Sum256([]byte(input))
+	expectedHash := sha256.Sum256([]byte(expected))
+	return subtle.ConstantTimeCompare(inputHash[:], expectedHash[:]) == 1
 }
 
 func cacheRecords(store *cache.Store) gin.HandlerFunc {

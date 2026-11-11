@@ -14,11 +14,15 @@ import (
 )
 
 type tokenPayload struct {
-	Exp int64 `json:"exp"`
+	Exp int64  `json:"exp"`
+	Pwd string `json:"pwd"`
 }
 
-func NewToken(secret string, ttl time.Duration) (string, error) {
-	payload := tokenPayload{Exp: time.Now().Add(ttl).Unix()}
+func NewToken(secret string, adminPassword string, ttl time.Duration) (string, error) {
+	payload := tokenPayload{
+		Exp: time.Now().Add(ttl).Unix(),
+		Pwd: passwordFingerprint(secret, adminPassword),
+	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -29,11 +33,11 @@ func NewToken(secret string, ttl time.Duration) (string, error) {
 	return payloadPart + "." + signature, nil
 }
 
-func RequireAuth(secret string) gin.HandlerFunc {
+func RequireAuth(secret string, adminPassword string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		token := strings.TrimPrefix(header, "Bearer ")
-		if token == "" || !validToken(token, secret) {
+		if token == "" || !validToken(token, secret, adminPassword) {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"success": false,
 				"error":   "unauthorized",
@@ -44,7 +48,7 @@ func RequireAuth(secret string) gin.HandlerFunc {
 	}
 }
 
-func validToken(token string, secret string) bool {
+func validToken(token string, secret string, adminPassword string) bool {
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
 		return false
@@ -64,7 +68,17 @@ func validToken(token string, secret string) bool {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return false
 	}
+	if !hmac.Equal([]byte(payload.Pwd), []byte(passwordFingerprint(secret, adminPassword))) {
+		return false
+	}
 	return payload.Exp > time.Now().Unix()
+}
+
+func passwordFingerprint(secret string, adminPassword string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte("admin-password:"))
+	mac.Write([]byte(adminPassword))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 func sign(payload string, secret string) string {
