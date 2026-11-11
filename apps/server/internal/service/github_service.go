@@ -22,6 +22,9 @@ import (
 
 const githubAPI = "https://api.github.com"
 const githubGraphQLAPI = "https://api.github.com/graphql"
+const repoPageSize = 100
+const maxRepoPages = 10
+const repoLanguageConcurrency = 8
 const maxCommitDetailItems = 8
 const maxCommitDiffFiles = 6
 const maxCommitPatchLength = 1400
@@ -66,11 +69,12 @@ func (s *GitHubService) ListRepos(ctx context.Context, sortBy string, language s
 	}
 
 	cards := make([]model.ProjectCard, 0, len(repos))
-	for _, repo := range repos {
+	languageResults := s.allRepoLanguages(ctx, repos, force)
+	for index, repo := range repos {
 		card := toProjectCard(repo)
-		languageMap, err := s.repoLanguages(ctx, repo.Name, force)
-		if err == nil {
-			card.Languages = languageStatsFromMap(languageMap)
+		result := languageResults[index]
+		if result.err == nil {
+			card.Languages = languageStatsFromMap(result.languages)
 			if len(card.Languages) > 0 {
 				card.Language = card.Languages[0].Name
 			}
@@ -139,12 +143,12 @@ func (s *GitHubService) LanguageStats(ctx context.Context, force bool) (model.La
 
 	totals := map[string]int64{}
 	var totalBytes int64
-	for _, repo := range repos {
-		languages, err := s.repoLanguages(ctx, repo.Name, force)
-		if err != nil {
+	languageResults := s.allRepoLanguages(ctx, repos, force)
+	for _, result := range languageResults {
+		if result.err != nil {
 			continue
 		}
-		for name, bytes := range languages {
+		for name, bytes := range result.languages {
 			totals[name] += bytes
 			totalBytes += bytes
 		}
@@ -385,10 +389,22 @@ func (s *GitHubService) listRawRepos(ctx context.Context, force bool) ([]model.G
 		}
 	}
 
-	requestURL := fmt.Sprintf("%s/users/%s/repos?per_page=100&type=owner&sort=updated", s.apiBase, url.PathEscape(s.cfg.GitHubUsername))
-	var apiRepos []githubRepoResponse
-	if err := s.getJSON(ctx, requestURL, &apiRepos); err != nil {
-		return nil, err
+	apiRepos := make([]githubRepoResponse, 0, repoPageSize)
+	for page := 1; page <= maxRepoPages; page++ {
+		requestURL := fmt.Sprintf("%s/users/%s/repos?per_page=%d&page=%d&type=owner&sort=updated",
+			s.apiBase,
+			url.PathEscape(s.cfg.GitHubUsername),
+			repoPageSize,
+			page,
+		)
+		var pageRepos []githubRepoResponse
+		if err := s.getJSON(ctx, requestURL, &pageRepos); err != nil {
+			return nil, err
+		}
+		apiRepos = append(apiRepos, pageRepos...)
+		if len(pageRepos) < repoPageSize {
+			break
+		}
 	}
 
 	repos := make([]model.GitHubRepo, 0, len(apiRepos))
@@ -408,6 +424,37 @@ func (s *GitHubService) hiddenRepoMap() map[string]bool {
 	s.displayMu.RLock()
 	defer s.displayMu.RUnlock()
 	return copyRepoNameMap(s.hiddenRepos)
+}
+
+type repoLanguagesResult struct {
+	languages map[string]int64
+	err       error
+}
+
+func (s *GitHubService) allRepoLanguages(ctx context.Context, repos []model.GitHubRepo, force bool) []repoLanguagesResult {
+	results := make([]repoLanguagesResult, len(repos))
+	if len(repos) == 0 {
+		return results
+	}
+
+	sem := make(chan struct{}, repoLanguageConcurrency)
+	var wg sync.WaitGroup
+	for index := range repos {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				results[index] = repoLanguagesResult{err: ctx.Err()}
+				return
+			}
+			results[index].languages, results[index].err = s.repoLanguages(ctx, repos[index].Name, force)
+		}(index)
+	}
+	wg.Wait()
+	return results
 }
 
 func (s *GitHubService) repoLanguages(ctx context.Context, repoName string, force bool) (map[string]int64, error) {
