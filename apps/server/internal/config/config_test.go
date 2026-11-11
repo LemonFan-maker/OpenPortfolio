@@ -80,3 +80,79 @@ func TestLoadReadsExplicitOpenCodeSettings(t *testing.T) {
 		t.Fatalf("AIModel = %q, want glm-5.3", cfg.AIModel)
 	}
 }
+
+func clearAdminTestEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"ADMIN_PASSWORD",
+		"JWT_SECRET",
+		"ADMIN_COOKIE_SECURE",
+		"TRUSTED_PROXIES",
+		"WEB_ORIGIN",
+	} {
+		t.Setenv(key, "")
+	}
+}
+
+func TestLoadAdminAuthDefaultsToUnavailable(t *testing.T) {
+	chdirTemp(t)
+	clearAdminTestEnv(t)
+
+	cfg := Load()
+	if cfg.AdminAuthReady() {
+		t.Fatal("default admin credentials should not be ready")
+	}
+	if cfg.AdminCookieSecure {
+		t.Fatal("admin cookie should not be secure for an HTTP origin")
+	}
+	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "127.0.0.1" {
+		t.Fatalf("trusted proxies = %#v", cfg.TrustedProxies)
+	}
+}
+
+func TestLoadAdminCookieSecureFollowsHTTPSOrigin(t *testing.T) {
+	chdirTemp(t)
+	clearAdminTestEnv(t)
+	t.Setenv("WEB_ORIGIN", "https://portfolio.example.com")
+
+	cfg := Load()
+	if !cfg.AdminCookieSecure {
+		t.Fatal("admin cookie should be secure for an HTTPS origin")
+	}
+}
+
+func TestLoadAdminCookieSecureCanBeOverridden(t *testing.T) {
+	chdirTemp(t)
+	clearAdminTestEnv(t)
+	t.Setenv("WEB_ORIGIN", "https://portfolio.example.com")
+	t.Setenv("ADMIN_COOKIE_SECURE", "false")
+
+	cfg := Load()
+	if cfg.AdminCookieSecure {
+		t.Fatal("explicit ADMIN_COOKIE_SECURE=false was ignored")
+	}
+}
+
+func TestAdminAuthReadyRequiresNonDefaultStrongSecrets(t *testing.T) {
+	base := Config{
+		AdminPassword: "a-long-admin-password",
+		JWTSecret:     "0123456789abcdef0123456789abcdef",
+	}
+	if !base.AdminAuthReady() {
+		t.Fatal("strong custom credentials should be ready")
+	}
+
+	cases := []Config{
+		{AdminPassword: DefaultAdminPassword, JWTSecret: base.JWTSecret},
+		{AdminPassword: base.AdminPassword, JWTSecret: DefaultJWTSecret},
+		{AdminPassword: "short", JWTSecret: base.JWTSecret},
+		{AdminPassword: base.AdminPassword, JWTSecret: "short"},
+		{AdminPassword: "", JWTSecret: base.JWTSecret},
+		{AdminPassword: base.AdminPassword, JWTSecret: ""},
+	}
+	for _, cfg := range cases {
+		if cfg.AdminAuthReady() {
+			t.Fatalf("insecure credentials were accepted: %#v", cfg)
+		}
+	}
+}

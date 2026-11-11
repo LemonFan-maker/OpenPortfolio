@@ -54,6 +54,7 @@ services:
       REDIS_ADDR: redis:6379
       SERVER_PORT: "7020"
       WEB_ORIGIN: http://localhost
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-172.16.0.0/12,127.0.0.1,::1}"
     volumes:
       - ../.env:/app/.env
     expose:

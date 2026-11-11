@@ -16,6 +16,9 @@ func main() {
 
 	redisStore := cache.NewStore(cfg)
 	router := gin.New()
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		log.Fatalf("invalid TRUSTED_PROXIES: %v", err)
+	}
 	router.Use(gin.Logger(), gin.Recovery(), middleware.CORS(cfg.WebOrigin))
 
 	router.GET("/api/health", handler.Health(redisStore))

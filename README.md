@@ -63,7 +63,7 @@ Portfolio Hub 是一个个人 GitHub 项目展示站，用于聚合公开仓库�
 cp .env.example .env
 ```
 
-编辑 `.env`，至少填写 `GITHUB_USERNAME` 和 `OPENCODE_API_KEY`。如果需要继续使用旧 OpenAI 兼容接口，将 `AI_PROVIDER` 改为 `openai` 并填写 `AI_API_KEY`。
+编辑 `.env`，至少填写 `GITHUB_USERNAME`、`OPENCODE_API_KEY`、`ADMIN_PASSWORD` 和 `JWT_SECRET`。如果需要继续使用旧 OpenAI 兼容接口，将 `AI_PROVIDER` 改为 `openai` 并填写 `AI_API_KEY`。
 
 安装前端依赖：
 
@@ -117,8 +117,10 @@ npm run dev:web
 | `BLOG_URL` | 否 | 后端使用的博客链接。 |
 | `SITE_NAME` | 否 | 后端站点名称。 |
 | `SITE_DESCRIPTION` | 否 | 后端站点描述。 |
-| `ADMIN_PASSWORD` | 是 | 管理后台登录密码，生产环境必须修改默认值。 |
-| `JWT_SECRET` | 是 | 管理后台 JWT 签名密钥，生产环境必须使用足够长的随机值。 |
+| `ADMIN_PASSWORD` | 是 | 管理后台登录密码，至少 12 位；默认值或空值会禁用后台登录和管理接口。 |
+| `JWT_SECRET` | 是 | 管理后台签名密钥，至少 32 位；默认值或空值会禁用后台登录和管理接口。 |
+| `ADMIN_COOKIE_SECURE` | 否 | 管理后台 cookie 的 `Secure` 标志；留空时根据 `WEB_ORIGIN` 是否为 HTTPS 自动判断，生产 HTTPS 建议设为 `true`。 |
+| `TRUSTED_PROXIES` | 否 | 可信反向代理 IP/CIDR，逗号分隔；默认 `127.0.0.1,::1`，Docker Compose 默认使用 Docker 网段。 |
 | `REDIS_ADDR` | 否 | Redis 地址，例如 `localhost:6379`。为空时禁用 Redis；连接失败时进入 30 秒熔断并降级到内存。 |
 | `REDIS_PASSWORD` | 否 | Redis 密码。 |
 | `REDIS_DB` | 否 | Redis 数据库编号。 |
@@ -131,7 +133,11 @@ npm run dev:web
 | `NEXT_PUBLIC_SITE_DESCRIPTION` | 否 | 前端站点描述。 |
 | `NEXT_PUBLIC_GITHUB_URL` | 否 | 前端导航中的 GitHub 链接。 |
 
-生产环境至少需要修改 `ADMIN_PASSWORD`、`JWT_SECRET`，并确保所有密钥只通过环境变量或密钥管理服务注入。
+生产环境必须修改 `ADMIN_PASSWORD`、`JWT_SECRET`，并确保所有密钥只通过环境变量或密钥管理服务注入。若保留默认值或长度不足，管理后台登录和管理接口会返回 `503`，公开站点不受影响。
+
+### 管理后台鉴权
+
+登录成功后服务端设置 24 小时有效的 `HttpOnly`、`SameSite=Strict` 管理 cookie；写操作还需要 `X-CSRF-Token` 请求头，前端会从非 `HttpOnly` 的 CSRF cookie 自动读取。管理员密码或签名密钥修改后，之前签发的 cookie 立即失效。HTTPS 部署请设置 `ADMIN_COOKIE_SECURE=true`；反向代理场景通过 `TRUSTED_PROXIES` 限定可信来源，避免伪造 `X-Forwarded-For` 绕过登录限流。
 
 ## 常用命令
 
@@ -245,7 +251,9 @@ AI 摘要请求示例：
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/api/admin/login` | 使用 `ADMIN_PASSWORD` 登录，返回 JWT。 |
+| `POST` | `/api/admin/login` | 使用 `ADMIN_PASSWORD` 登录，设置管理 cookie 和 CSRF cookie。 |
+| `POST` | `/api/admin/logout` | 清除管理 cookie。 |
+| `GET` | `/api/admin/session` | 检查当前管理 cookie 是否有效。 |
 | `GET` | `/api/admin/cache/records` | 读取最近缓存操作记录。 |
 | `POST` | `/api/admin/cache/refresh/repos` | 刷新项目列表缓存。 |
 | `POST` | `/api/admin/cache/refresh/languages` | 刷新语言统计缓存。 |
@@ -264,13 +272,13 @@ AI 摘要请求示例：
 | `GET` | `/api/admin/hidden-projects` | 读取隐藏项目。 |
 | `POST` | `/api/admin/hidden-projects` | 保存隐藏项目。 |
 
-除登录接口外，管理接口都需要请求头：
+除登录和登出接口外，管理接口都需要有效的管理 cookie。浏览器写操作还必须带上从 CSRF cookie 读取的请求头：
 
 ```text
-Authorization: Bearer <token>
+X-CSRF-Token: <csrf-token>
 ```
 
-登录失败按客户端 IP 限流：5 分钟内最多允许 5 次失败尝试，超限返回 `429` 和 `Retry-After`。Token 与当前 `ADMIN_PASSWORD` 绑定，修改管理员密码后，已签发的 token 会立即失效，需要重新登录。
+登录失败按客户端 IP 限流：5 分钟内最多允许 5 次失败尝试，超限返回 `429` 和 `Retry-After`。Cookie 中的签名与当前 `ADMIN_PASSWORD` 绑定，修改管理员密码或 `JWT_SECRET` 后，之前签发的 cookie 会立即失效，需要重新登录。
 
 ## 缓存策略
 
@@ -326,4 +334,4 @@ docker build -f apps/web/Dockerfile -t portfolio-hub-web .
 docker compose --env-file .env -f deploy/docker-compose.yaml up --build
 ```
 
-Compose 会启动 nginx、前端、后端和 Redis。浏览器和 nginx 使用同源 `/api`，nginx 将 `/api/` 转发到 `server:7020`，其余请求转发到 `web:3000`；只有 nginx 暴露 80 端口。`--env-file .env` 让 Compose 把前端的 `NEXT_PUBLIC_*` 作为构建参数注入镜像；修改这些公开变量后需要重新执行 `up --build`。后端容器会挂载根目录 `.env`，管理后台的 `.env` 编辑才会落盘并在重启后保留。前端容器不再接收完整的 `.env`，避免把 GitHub、AI 和管理后台密钥暴露给前端镜像。
+Compose 会启动 nginx、前端、后端和 Redis。浏览器和 nginx 使用同源 `/api`，nginx 将 `/api/` 转发到 `server:7020`，其余请求转发到 `web:3000`；只有 nginx 暴露 80 端口。`--env-file .env` 让 Compose 把前端的 `NEXT_PUBLIC_*` 作为构建参数注入镜像；修改这些公开变量后需要重新执行 `up --build`。后端容器会挂载根目录 `.env`，管理后台的 `.env` 编辑才会落盘并在重启后保留。前端容器不再接收完整的 `.env`，避免把 GitHub、AI 和管理后台密钥暴露给前端镜像。Docker 内默认信任 `172.16.0.0/12` 作为反向代理网段；如自定义网络，请设置 `TRUSTED_PROXIES`。

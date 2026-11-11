@@ -22,12 +22,19 @@ import (
 
 const cacheOperationRecordKey = "admin:cache:refresh-records"
 const cacheOperationRecordLimit int64 = 30
+const adminTokenTTL = 24 * time.Hour
 
 func RegisterAdminRoutes(router *gin.Engine, cfg config.Config, store *cache.Store, githubService *service.GitHubService, aiService *service.AIService) {
 	router.POST("/api/admin/login", login(cfg))
+	router.POST("/api/admin/logout", logout(cfg))
 
 	admin := router.Group("/api/admin")
-	admin.Use(middleware.RequireAuth(cfg.JWTSecret, cfg.AdminPassword))
+	if cfg.AdminAuthReady() {
+		admin.Use(middleware.RequireAuth(cfg.JWTSecret, cfg.AdminPassword))
+	} else {
+		admin.Use(adminAuthUnavailable)
+	}
+	admin.GET("/session", adminSession)
 	admin.GET("/cache/records", cacheRecords(store))
 	admin.POST("/cache/refresh/repos", refreshRepos(githubService, store))
 	admin.POST("/cache/refresh/languages", refreshLanguages(githubService, store))
@@ -50,6 +57,11 @@ func RegisterAdminRoutes(router *gin.Engine, cfg config.Config, store *cache.Sto
 func login(cfg config.Config) gin.HandlerFunc {
 	limiter := newLoginLimiter(loginAttemptLimit, loginAttemptWindow, time.Now)
 	return func(c *gin.Context) {
+		if !cfg.AdminAuthReady() {
+			adminAuthUnavailable(c)
+			return
+		}
+
 		clientIP := c.ClientIP()
 		if !limiter.allow(clientIP) {
 			if retry := limiter.retryAfter(clientIP); retry > 0 {
@@ -73,12 +85,74 @@ func login(cfg config.Config) gin.HandlerFunc {
 		}
 
 		limiter.reset(clientIP)
-		token, err := middleware.NewToken(cfg.JWTSecret, cfg.AdminPassword, 24*time.Hour)
+		token, err := middleware.NewToken(cfg.JWTSecret, cfg.AdminPassword, adminTokenTTL)
 		if err != nil {
 			response.Error(c, http.StatusInternalServerError, err.Error())
 			return
 		}
-		response.OK(c, gin.H{"token": token})
+		csrf, err := middleware.NewCSRFToken()
+		if err != nil {
+			response.Error(c, http.StatusInternalServerError, err.Error())
+			return
+		}
+		setAdminCookies(c, cfg, token, csrf)
+		response.OK(c, gin.H{"authenticated": true})
+	}
+}
+
+func logout(cfg config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clearAdminCookies(c, cfg)
+		response.OK(c, gin.H{"authenticated": false})
+	}
+}
+
+func adminSession(c *gin.Context) {
+	response.OK(c, gin.H{"authenticated": true})
+}
+
+func adminAuthUnavailable(c *gin.Context) {
+	c.Abort()
+	response.Error(c, http.StatusServiceUnavailable, "admin auth is not configured; set ADMIN_PASSWORD and JWT_SECRET")
+}
+
+func setAdminCookies(c *gin.Context, cfg config.Config, token string, csrf string) {
+	expires := time.Now().Add(adminTokenTTL)
+	maxAge := int(adminTokenTTL.Seconds())
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     middleware.AdminTokenCookieName,
+		Value:    token,
+		Path:     "/api/admin",
+		MaxAge:   maxAge,
+		Expires:  expires,
+		HttpOnly: true,
+		Secure:   cfg.AdminCookieSecure,
+		SameSite: http.SameSiteStrictMode,
+	})
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     middleware.AdminCSRFCookieName,
+		Value:    csrf,
+		Path:     "/",
+		MaxAge:   maxAge,
+		Expires:  expires,
+		HttpOnly: false,
+		Secure:   cfg.AdminCookieSecure,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+func clearAdminCookies(c *gin.Context, cfg config.Config) {
+	expires := time.Unix(1, 0)
+	for _, cookie := range []*http.Cookie{
+		{Name: middleware.AdminTokenCookieName, Path: "/api/admin", HttpOnly: true},
+		{Name: middleware.AdminCSRFCookieName, Path: "/", HttpOnly: false},
+	} {
+		cookie.Value = ""
+		cookie.MaxAge = -1
+		cookie.Expires = expires
+		cookie.Secure = cfg.AdminCookieSecure
+		cookie.SameSite = http.SameSiteStrictMode
+		http.SetCookie(c.Writer, cookie)
 	}
 }
 

@@ -78,8 +78,8 @@ func TestHealthReportsRedisDegradedWhenUnavailable(t *testing.T) {
 func TestAdminCacheClearSucceedsWithoutRedis(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.Config{
-		AdminPassword:  "test-password",
-		JWTSecret:      "test-secret",
+		AdminPassword:  testAdminPassword,
+		JWTSecret:      testJWTSecret,
 		RedisAddr:      "",
 		GitHubUsername: "tester",
 	}
@@ -128,8 +128,8 @@ func TestAdminCacheClearSucceedsWithoutRedis(t *testing.T) {
 func TestAdminCacheRecordsUseMemoryFallbackWithoutRedis(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := config.Config{
-		AdminPassword:  "test-password",
-		JWTSecret:      "test-secret",
+		AdminPassword:  testAdminPassword,
+		JWTSecret:      testJWTSecret,
 		RedisAddr:      "",
 		GitHubUsername: "tester",
 	}
@@ -177,5 +177,78 @@ func TestAdminCacheRecordsUseMemoryFallbackWithoutRedis(t *testing.T) {
 	}
 	if body.Data[0].Scope != "github:repo-details" {
 		t.Fatalf("record scope = %q, want github:repo-details", body.Data[0].Scope)
+	}
+}
+
+func TestAdminRoutesFailClosedWithoutStrongSecrets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := config.Config{RedisAddr: ""}
+	store := cache.NewStore(cfg)
+	githubService := NewGitHubService(cfg, store)
+	aiService := NewAIService(cfg, store, githubService)
+
+	router := gin.New()
+	RegisterAdminRoutes(router, cfg, store, githubService, aiService)
+
+	session := httptest.NewRecorder()
+	router.ServeHTTP(session, httptest.NewRequest(http.MethodGet, "/api/admin/session", nil))
+	if session.Code != http.StatusServiceUnavailable {
+		t.Fatalf("session status = %d, want %d", session.Code, http.StatusServiceUnavailable)
+	}
+
+	login := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/login", nil)
+	router.ServeHTTP(login, req)
+	if login.Code != http.StatusServiceUnavailable {
+		t.Fatalf("login status = %d, want %d", login.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestAdminCookieCSRFFlowThroughRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cfg := testAdminConfig()
+	cfg.RedisAddr = ""
+	cfg.GitHubUsername = "tester"
+	store := cache.NewStore(cfg)
+	githubService := NewGitHubService(cfg, store)
+	aiService := NewAIService(cfg, store, githubService)
+
+	router := gin.New()
+	RegisterAdminRoutes(router, cfg, store, githubService, aiService)
+
+	login := loginRequest(router, "203.0.113.50:1234", testAdminPassword)
+	if login.Code != http.StatusOK {
+		t.Fatalf("login status = %d, want %d; body=%s", login.Code, http.StatusOK, login.Body.String())
+	}
+	authCookie := findCookie(login.Result().Cookies(), middleware.AdminTokenCookieName)
+	csrfCookie := findCookie(login.Result().Cookies(), middleware.AdminCSRFCookieName)
+	if authCookie == nil || csrfCookie == nil {
+		t.Fatalf("login cookies = %#v, want auth and CSRF cookies", login.Result().Cookies())
+	}
+
+	session := httptest.NewRecorder()
+	sessionReq := httptest.NewRequest(http.MethodGet, "/api/admin/session", nil)
+	sessionReq.AddCookie(authCookie)
+	router.ServeHTTP(session, sessionReq)
+	if session.Code != http.StatusOK {
+		t.Fatalf("session status = %d, want %d; body=%s", session.Code, http.StatusOK, session.Body.String())
+	}
+
+	blocked := httptest.NewRecorder()
+	blockedReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/clear/repo-details", nil)
+	blockedReq.AddCookie(authCookie)
+	router.ServeHTTP(blocked, blockedReq)
+	if blocked.Code != http.StatusForbidden {
+		t.Fatalf("write without CSRF status = %d, want %d; body=%s", blocked.Code, http.StatusForbidden, blocked.Body.String())
+	}
+
+	allowed := httptest.NewRecorder()
+	allowedReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/clear/repo-details", nil)
+	allowedReq.AddCookie(authCookie)
+	allowedReq.AddCookie(csrfCookie)
+	allowedReq.Header.Set("X-CSRF-Token", csrfCookie.Value)
+	router.ServeHTTP(allowed, allowedReq)
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("write with CSRF status = %d, want %d; body=%s", allowed.Code, http.StatusOK, allowed.Body.String())
 	}
 }

@@ -12,7 +12,9 @@ import {
   getAdminFeatured,
   getAdminEnv,
   getAdminHiddenProjects,
+  getAdminSession,
   loginAdmin,
+  logoutAdmin,
   refreshAdminActivity,
   refreshAdminAll,
   refreshAdminLanguages,
@@ -47,14 +49,12 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-const tokenStorageKey = "portfolio-hub-admin-token";
-
 type Operation = {
   description: string;
   group: string;
   icon: typeof RefreshCcw;
   id: string;
-  run: (token: string) => Promise<CacheOperationRecord>;
+  run: () => Promise<CacheOperationRecord>;
   title: string;
 };
 
@@ -98,7 +98,7 @@ const envGroupDefinitions: EnvGroupDefinition[] = [
     description: "后台登录口令和 JWT 签名密钥。",
     icon: KeyRound,
     id: "admin",
-    keys: ["ADMIN_PASSWORD", "JWT_SECRET"],
+    keys: ["ADMIN_PASSWORD", "JWT_SECRET", "ADMIN_COOKIE_SECURE"],
     title: "后台安全",
   },
   {
@@ -112,7 +112,7 @@ const envGroupDefinitions: EnvGroupDefinition[] = [
     description: "Go API 服务端口和跨域来源。",
     icon: Server,
     id: "server",
-    keys: ["SERVER_PORT", "WEB_ORIGIN"],
+    keys: ["SERVER_PORT", "WEB_ORIGIN", "TRUSTED_PROXIES"],
     title: "后端服务",
   },
   {
@@ -138,13 +138,15 @@ const envFieldLabels: Record<string, { label: string; hint: string }> = {
   BLOG_URL: { label: "博客地址", hint: "导航栏和关于页的博客入口。" },
   SITE_NAME: { label: "站点名称", hint: "服务端站点配置名称。" },
   SITE_DESCRIPTION: { label: "站点描述", hint: "首页主描述文案。" },
-  ADMIN_PASSWORD: { label: "后台密码", hint: "管理员登录口令。" },
-  JWT_SECRET: { label: "JWT 密钥", hint: "用于签发后台登录 Token。" },
+  ADMIN_PASSWORD: { label: "后台密码", hint: "至少 12 位；默认值会禁用后台登录。" },
+  JWT_SECRET: { label: "JWT 密钥", hint: "至少 32 位；默认值会禁用后台登录。" },
+  ADMIN_COOKIE_SECURE: { label: "管理 Cookie Secure", hint: "HTTPS 部署设为 true；留空按 WEB_ORIGIN 自动判断。" },
   REDIS_ADDR: { label: "Redis 地址", hint: "例如 localhost:6379 或 redis:6379。" },
   REDIS_PASSWORD: { label: "Redis 密码", hint: "没有密码时可以留空。" },
   REDIS_DB: { label: "Redis DB", hint: "缓存使用的数据库编号。" },
   SERVER_PORT: { label: "后端端口", hint: "Go API 服务监听端口。" },
   WEB_ORIGIN: { label: "Web 来源", hint: "允许跨域访问 API 的前端地址。" },
+  TRUSTED_PROXIES: { label: "可信代理", hint: "逗号分隔的 IP/CIDR；用于正确识别客户端 IP。" },
   NEXT_PUBLIC_API_BASE_URL: { label: "前端 API 地址", hint: "浏览器请求后端 API 的地址。" },
   NEXT_PUBLIC_BLOG_URL: { label: "前端博客地址", hint: "浏览器中实际跳转的博客入口。" },
   NEXT_PUBLIC_GITHUB_URL: { label: "前端 GitHub 地址", hint: "导航栏 GitHub 图标跳转地址。" },
@@ -154,7 +156,7 @@ const envFieldLabels: Record<string, { label: string; hint: string }> = {
 
 export function AdminDashboard({ activity, languages, projects }: AdminDashboardProps) {
   const [password, setPassword] = useState("");
-  const [token, setToken] = useState("");
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [loginState, setLoginState] = useState<"idle" | "loading">("idle");
   const [loginError, setLoginError] = useState("");
   const [activeOperation, setActiveOperation] = useState("");
@@ -301,10 +303,21 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
   );
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(tokenStorageKey);
-    if (stored) {
-      setToken(stored);
-    }
+    let ignore = false;
+    getAdminSession()
+      .then(() => {
+        if (!ignore) {
+          setAuthenticated(true);
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setAuthenticated(false);
+        }
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -314,7 +327,7 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
   }, [aiRepoName, projects]);
 
   useEffect(() => {
-    if (!token) {
+    if (!authenticated) {
       return;
     }
 
@@ -323,10 +336,10 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
       setLoadingConfig(true);
       try {
         const [featured, hidden, envFile, records] = await Promise.all([
-          getAdminFeatured(token),
-          getAdminHiddenProjects(token),
-          getAdminEnv(token),
-          getAdminCacheRecords(token),
+          getAdminFeatured(),
+          getAdminHiddenProjects(),
+          getAdminEnv(),
+          getAdminCacheRecords(),
         ]);
         if (!ignore) {
           setFeaturedText(featured.join("\n"));
@@ -350,13 +363,13 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     return () => {
       ignore = true;
     };
-  }, [token]);
+  }, [authenticated]);
 
-  async function loadCacheRecords(nextToken = token) {
-    if (!nextToken) {
+  async function loadCacheRecords() {
+    if (!authenticated) {
       return;
     }
-    const records = await getAdminCacheRecords(nextToken);
+    const records = await getAdminCacheRecords();
     setCacheRecords(records);
   }
 
@@ -367,9 +380,8 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     setLoginState("loading");
 
     try {
-      const nextToken = await loginAdmin(password);
-      window.localStorage.setItem(tokenStorageKey, nextToken);
-      setToken(nextToken);
+      await loginAdmin(password);
+      setAuthenticated(true);
       setPassword("");
       setNotice("已登录管理后台");
     } catch (nextError) {
@@ -385,7 +397,7 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     setNotice("");
 
     try {
-      const record = await operation.run(token);
+      const record = await operation.run();
       setCacheRecords((current) => [record, ...current.filter((item) => item.id !== record.id)].slice(0, 30));
       setNotice(record.affectedKeys > 0 ? `${operation.title}已完成，影响 ${record.affectedKeys} 个缓存键` : `${operation.title}已完成`);
       void loadCacheRecords();
@@ -410,9 +422,9 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
 
     try {
       if (kind === "featured") {
-        await saveAdminFeatured(token, names);
+        await saveAdminFeatured(names);
       } else {
-        await saveAdminHiddenProjects(token, names);
+        await saveAdminHiddenProjects(names);
       }
       setNotice(kind === "featured" ? "精选项目已提交" : "隐藏项目已提交");
     } catch (nextError) {
@@ -428,7 +440,7 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     setNotice("");
 
     try {
-      const envFile = await saveAdminEnv(token, envEntries);
+      const envFile = await saveAdminEnv(envEntries);
       setEnvPath(envFile.path);
       setEnvEntries(envFile.entries);
       setNotice(".env 参数已保存，运行中的服务可能需要重启后完全生效");
@@ -454,8 +466,8 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
   }
 
   function logout() {
-    window.localStorage.removeItem(tokenStorageKey);
-    setToken("");
+    void logoutAdmin().catch(() => {});
+    setAuthenticated(false);
     setNotice("");
     setError("");
     setFeaturedText("");
@@ -481,7 +493,7 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     setAiDebug(null);
 
     try {
-      const result = await generateAdminAISummary(token, aiRepoName, aiForceRefresh);
+      const result = await generateAdminAISummary(aiRepoName, aiForceRefresh);
       setAiDebug(result);
       setNotice(`已生成 ${result.repoName} 的 AI 简介`);
     } catch (nextError) {
@@ -491,7 +503,17 @@ export function AdminDashboard({ activity, languages, projects }: AdminDashboard
     }
   }
 
-  if (!token) {
+  if (authenticated === null) {
+    return (
+      <section className="section">
+        <div className="container flex min-h-[50vh] items-center justify-center text-[var(--muted)]">
+          <Loader2 className="animate-spin" size={24} />
+        </div>
+      </section>
+    );
+  }
+
+  if (!authenticated) {
     return (
       <section className="section">
         <div className="container grid gap-8 lg:grid-cols-[1fr_420px]">

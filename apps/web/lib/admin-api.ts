@@ -13,136 +13,137 @@ export type EnvFile = {
   entries: EnvEntry[];
 };
 
-export async function loginAdmin(password: string): Promise<string> {
-  const body = await adminFetch<{ token: string }>("/api/admin/login", {
+export type AdminSession = {
+  authenticated: boolean;
+};
+
+const csrfCookieName = "portfolio_admin_csrf";
+
+export async function loginAdmin(password: string): Promise<void> {
+  await adminFetch<AdminSession>("/api/admin/login", {
     body: JSON.stringify({ password }),
     method: "POST",
   });
-  return body.token;
 }
 
-export function refreshAdminRepos(token: string) {
+export function getAdminSession(): Promise<AdminSession> {
+  return adminFetch<AdminSession>("/api/admin/session");
+}
+
+export function logoutAdmin(): Promise<AdminSession> {
+  return adminFetch<AdminSession>("/api/admin/logout", { method: "POST" });
+}
+
+export function refreshAdminRepos() {
   return adminFetch<AdminActionResult>("/api/admin/cache/refresh/repos", {
     method: "POST",
-    token,
   });
 }
 
-export function refreshAdminLanguages(token: string) {
+export function refreshAdminLanguages() {
   return adminFetch<AdminActionResult>("/api/admin/cache/refresh/languages", {
     method: "POST",
-    token,
   });
 }
 
-export function refreshAdminActivity(token: string) {
+export function refreshAdminActivity() {
   return adminFetch<AdminActionResult>("/api/admin/cache/refresh/activity", {
     method: "POST",
-    token,
   });
 }
 
-export function refreshAdminAll(token: string) {
+export function refreshAdminAll() {
   return adminFetch<AdminActionResult>("/api/admin/cache/refresh/all", {
     method: "POST",
-    token,
   });
 }
 
-export function clearAdminRepoDetails(token: string) {
+export function clearAdminRepoDetails() {
   return adminFetch<AdminActionResult>("/api/admin/cache/clear/repo-details", {
     method: "POST",
-    token,
   });
 }
 
-export function clearAdminRepoBrowser(token: string) {
+export function clearAdminRepoBrowser() {
   return adminFetch<AdminActionResult>("/api/admin/cache/clear/repo-browser", {
     method: "POST",
-    token,
   });
 }
 
-export function clearAdminAIProjectSummaries(token: string) {
+export function clearAdminAIProjectSummaries() {
   return adminFetch<AdminActionResult>("/api/admin/cache/clear/ai-projects", {
     method: "POST",
-    token,
   });
 }
 
-export function clearAdminAISiteSummary(token: string) {
+export function clearAdminAISiteSummary() {
   return adminFetch<AdminActionResult>("/api/admin/cache/clear/ai-site", {
     method: "POST",
-    token,
   });
 }
 
-export function clearAdminAISummaries(token: string) {
+export function clearAdminAISummaries() {
   return adminFetch<AdminActionResult>("/api/admin/cache/clear/ai", {
     method: "POST",
-    token,
   });
 }
 
-export function getAdminCacheRecords(token: string) {
-  return adminFetch<CacheOperationRecord[]>("/api/admin/cache/records", { token });
+export function getAdminCacheRecords() {
+  return adminFetch<CacheOperationRecord[]>("/api/admin/cache/records");
 }
 
-export function generateAdminAISummary(token: string, repoName: string, forceRefresh: boolean) {
+export function generateAdminAISummary(repoName: string, forceRefresh: boolean) {
   return adminFetch<ProjectSummaryDebug>("/api/admin/ai/project-summary", {
     body: JSON.stringify({ repoName, forceRefresh }),
     method: "POST",
-    token,
   });
 }
 
-export function getAdminEnv(token: string) {
-  return adminFetch<EnvFile>("/api/admin/env", { token });
+export function getAdminEnv() {
+  return adminFetch<EnvFile>("/api/admin/env");
 }
 
-export function saveAdminEnv(token: string, entries: EnvEntry[]) {
+export function saveAdminEnv(entries: EnvEntry[]) {
   return adminFetch<EnvFile>("/api/admin/env", {
     body: JSON.stringify({ entries }),
     method: "PUT",
-    token,
   });
 }
 
-export function getAdminFeatured(token: string) {
-  return adminFetch<string[]>("/api/admin/featured", { token });
+export function getAdminFeatured() {
+  return adminFetch<string[]>("/api/admin/featured");
 }
 
-export function saveAdminFeatured(token: string, projects: string[]) {
+export function saveAdminFeatured(projects: string[]) {
   return adminFetch<AdminActionResult>("/api/admin/featured", {
     body: JSON.stringify({ projects }),
     method: "POST",
-    token,
   });
 }
 
-export function getAdminHiddenProjects(token: string) {
-  return adminFetch<string[]>("/api/admin/hidden-projects", { token });
+export function getAdminHiddenProjects() {
+  return adminFetch<string[]>("/api/admin/hidden-projects");
 }
 
-export function saveAdminHiddenProjects(token: string, projects: string[]) {
+export function saveAdminHiddenProjects(projects: string[]) {
   return adminFetch<AdminActionResult>("/api/admin/hidden-projects", {
     body: JSON.stringify({ projects }),
     method: "POST",
-    token,
   });
 }
 
-async function adminFetch<T>(
-  path: string,
-  init: RequestInit & { token?: string } = {},
-): Promise<T> {
-  const { token, headers, ...rest } = init;
+async function adminFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const { headers, ...rest } = init;
+  const method = (rest.method ?? "GET").toUpperCase();
+  const csrf = readCSRFCookie();
+  const needsCSRF = method === "POST" || method === "PUT" || method === "PATCH" || method === "DELETE";
   const res = await fetch(apiURL(path), {
     ...rest,
     cache: "no-store",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(needsCSRF && csrf ? { "X-CSRF-Token": csrf } : {}),
       ...headers,
     },
   });
@@ -159,4 +160,18 @@ async function adminFetch<T>(
   }
 
   return body.data;
+}
+
+function readCSRFCookie(): string {
+  if (typeof document === "undefined") {
+    return "";
+  }
+  const prefix = `${csrfCookieName}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+  return "";
 }

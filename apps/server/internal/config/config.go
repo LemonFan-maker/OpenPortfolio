@@ -17,6 +17,11 @@ const (
 
 	DefaultOpenCodeModel = "deepseek-v4.1-flash"
 	DefaultOpenAIModel   = "gpt-4o-mini"
+
+	DefaultAdminPassword   = "change-me"
+	DefaultJWTSecret       = "dev-secret-change-me"
+	MinAdminPasswordLength = 12
+	MinJWTSecretLength     = 32
 )
 
 type Config struct {
@@ -39,8 +44,10 @@ type Config struct {
 	SiteName        string
 	SiteDescription string
 
-	AdminPassword string
-	JWTSecret     string
+	AdminPassword     string
+	JWTSecret         string
+	AdminCookieSecure bool
+	TrustedProxies    []string
 
 	RedisAddr     string
 	RedisPassword string
@@ -58,6 +65,8 @@ func Load() Config {
 	if strings.EqualFold(aiProvider, AIProviderOpenAI) {
 		aiDefaultModel = DefaultOpenAIModel
 	}
+	webOrigin := env("WEB_ORIGIN", "http://localhost:3000")
+	adminCookieSecure := envBool("ADMIN_COOKIE_SECURE", strings.HasPrefix(webOrigin, "https://"))
 
 	return Config{
 		GitHubUsername:  env("GITHUB_USERNAME", ""),
@@ -79,14 +88,25 @@ func Load() Config {
 			"SITE_DESCRIPTION",
 			"代码如诗，构建无限可能",
 		),
-		AdminPassword: env("ADMIN_PASSWORD", "change-me"),
-		JWTSecret:     env("JWT_SECRET", "dev-secret-change-me"),
-		RedisAddr:     env("REDIS_ADDR", "localhost:6379"),
-		RedisPassword: env("REDIS_PASSWORD", ""),
-		RedisDB:       envInt("REDIS_DB", 0),
-		ServerPort:    env("SERVER_PORT", "7020"),
-		WebOrigin:     env("WEB_ORIGIN", "http://localhost:3000"),
+		AdminPassword:     env("ADMIN_PASSWORD", DefaultAdminPassword),
+		JWTSecret:         env("JWT_SECRET", DefaultJWTSecret),
+		AdminCookieSecure: adminCookieSecure,
+		TrustedProxies:    ParseCSVList(env("TRUSTED_PROXIES", "127.0.0.1,::1")),
+		RedisAddr:         env("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:     env("REDIS_PASSWORD", ""),
+		RedisDB:           envInt("REDIS_DB", 0),
+		ServerPort:        env("SERVER_PORT", "7020"),
+		WebOrigin:         webOrigin,
 	}
+}
+
+func (c Config) AdminAuthReady() bool {
+	password := strings.TrimSpace(c.AdminPassword)
+	secret := strings.TrimSpace(c.JWTSecret)
+	return password != "" && password != DefaultAdminPassword &&
+		len(password) >= MinAdminPasswordLength &&
+		secret != "" && secret != DefaultJWTSecret &&
+		len(secret) >= MinJWTSecretLength
 }
 
 func loadDotEnv() {
@@ -161,6 +181,21 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envBool(key string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func parseCSVMap(value string) map[string]bool {
