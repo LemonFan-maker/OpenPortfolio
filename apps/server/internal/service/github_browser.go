@@ -21,6 +21,10 @@ const (
 )
 
 func (s *GitHubService) RepoTree(ctx context.Context, repoName string, force bool) (model.RepoTree, error) {
+	if s.isHiddenRepo(repoName) {
+		return model.RepoTree{}, errors.New("repository not found")
+	}
+
 	repo, err := s.repoByName(ctx, repoName, force)
 	if err != nil {
 		return model.RepoTree{}, err

@@ -290,6 +290,10 @@ func saveHiddenProjects(githubService *service.GitHubService, store *cache.Store
 		}
 
 		githubService.SetHiddenRepos(names)
+		if err := githubService.ClearRepositories(c.Request.Context(), names); err != nil {
+			response.Error(c, http.StatusBadGateway, err.Error())
+			return
+		}
 		_ = store.DeletePattern(c.Request.Context(), "github:languages:*")
 		_ = store.DeletePattern(c.Request.Context(), "ai:site-summary:*")
 		response.OK(c, gin.H{"saved": true, "projects": names, "path": envFile.Path})

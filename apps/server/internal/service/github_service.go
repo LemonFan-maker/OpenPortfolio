@@ -175,6 +175,9 @@ func (s *GitHubService) RepoDetail(ctx context.Context, repoName string, force b
 	if repoName == "" {
 		return model.RepoDetail{}, errors.New("repoName is required")
 	}
+	if s.isHiddenRepo(repoName) {
+		return model.RepoDetail{}, errors.New("repository not found")
+	}
 
 	cacheKey := fmt.Sprintf("github:repo:%s:%s", s.cfg.GitHubUsername, strings.ToLower(repoName))
 	if !force {
@@ -424,6 +427,41 @@ func (s *GitHubService) hiddenRepoMap() map[string]bool {
 	s.displayMu.RLock()
 	defer s.displayMu.RUnlock()
 	return copyRepoNameMap(s.hiddenRepos)
+}
+
+func (s *GitHubService) isHiddenRepo(repoName string) bool {
+	s.displayMu.RLock()
+	defer s.displayMu.RUnlock()
+	return s.hiddenRepos[strings.ToLower(strings.TrimSpace(repoName))]
+}
+
+func (s *GitHubService) ClearRepositories(ctx context.Context, names []string) error {
+	if s.cache == nil {
+		return nil
+	}
+
+	patterns := make([]string, 0, len(names)*7)
+	for _, name := range names {
+		repoName := strings.ToLower(strings.TrimSpace(name))
+		if repoName == "" {
+			continue
+		}
+		owner := s.cfg.GitHubUsername
+		patterns = append(patterns,
+			fmt.Sprintf("github:repo:%s:%s", owner, repoName),
+			fmt.Sprintf("github:readme:%s:%s", owner, repoName),
+			fmt.Sprintf("github:languages:%s:%s", owner, repoName),
+			fmt.Sprintf("github:tree:%s:%s:*", owner, repoName),
+			fmt.Sprintf("github:file:%s:%s:*", owner, repoName),
+			fmt.Sprintf("github:file-content:%s:%s:*", owner, repoName),
+			fmt.Sprintf("ai:summary:%s:%s:*", owner, repoName),
+		)
+	}
+	if len(patterns) == 0 {
+		return nil
+	}
+	_, err := s.cache.DeletePatterns(ctx, patterns...)
+	return err
 }
 
 type repoLanguagesResult struct {
