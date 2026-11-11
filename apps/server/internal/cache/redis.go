@@ -230,6 +230,9 @@ func (s *Store) DeletePattern(ctx context.Context, pattern string) error {
 }
 
 func (s *Store) DeletePatternCount(ctx context.Context, pattern string) (int64, error) {
+	if !s.Enabled() {
+		return s.deleteMemoryPattern(pattern), nil
+	}
 	if !s.useRedis() {
 		s.recordPendingDelete(pattern)
 		return s.deleteMemoryPattern(pattern), nil

@@ -133,3 +133,13 @@ func TestMemoryFallbackDeletesListsWithPatterns(t *testing.T) {
 		t.Fatalf("deleted memory fallback list length = %d, want 0", len(records))
 	}
 }
+
+func TestDisabledRedisDoesNotQueuePatternDeletes(t *testing.T) {
+	store := NewStore(config.Config{RedisAddr: ""})
+	if err := store.DeletePattern(context.Background(), "cache:*"); err != nil {
+		t.Fatalf("DeletePattern: %v", err)
+	}
+	if len(store.pendingDeletes) != 0 {
+		t.Fatalf("pending deletes = %#v, want none when Redis is disabled", store.pendingDeletes)
+	}
+}

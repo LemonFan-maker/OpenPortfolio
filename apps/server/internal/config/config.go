@@ -100,7 +100,7 @@ func Load() Config {
 		JWTSecret:         env("JWT_SECRET", DefaultJWTSecret),
 		AdminCookieSecure: adminCookieSecure,
 		TrustedProxies:    ParseCSVList(env("TRUSTED_PROXIES", "127.0.0.1,::1")),
-		RedisAddr:         env("REDIS_ADDR", "localhost:6379"),
+		RedisAddr:         env("REDIS_ADDR", ""),
 		RedisPassword:     env("REDIS_PASSWORD", ""),
 		RedisDB:           envInt("REDIS_DB", 0),
 		ServerPort:        env("SERVER_PORT", "7020"),

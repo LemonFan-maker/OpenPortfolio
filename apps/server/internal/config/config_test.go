@@ -179,3 +179,13 @@ func TestLoadPublicAIRateLimitDefaults(t *testing.T) {
 		t.Fatalf("AIPublicMaxConcurrency = %d, want 2", cfg.AIPublicMaxConcurrency)
 	}
 }
+
+func TestLoadDisablesRedisByDefault(t *testing.T) {
+	chdirTemp(t)
+	t.Setenv("REDIS_ADDR", "")
+
+	cfg := Load()
+	if cfg.RedisAddr != "" {
+		t.Fatalf("RedisAddr = %q, want empty when REDIS_ADDR is unset", cfg.RedisAddr)
+	}
+}
