@@ -323,7 +323,7 @@ docker build -f apps/web/Dockerfile -t portfolio-hub-web .
 推荐使用 `deploy/docker-compose.yaml` 启动完整栈：
 
 ```bash
-docker compose -f deploy/docker-compose.yaml up --build
+docker compose --env-file .env -f deploy/docker-compose.yaml up --build
 ```
 
-Compose 会启动 nginx、前端、后端和 Redis。浏览器和 nginx 使用同源 `/api`，nginx 将 `/api/` 转发到 `server:7020`，其余请求转发到 `web:3000`；只有 nginx 暴露 80 端口。运行容器时需要按实际部署环境传入 `.env` 中的配置。前端构建会读取 `API_BASE_URL` 和 `NEXT_PUBLIC_*` 变量，后端运行时读取 GitHub、AI、Redis、管理后台和 CORS 配置。
+Compose 会启动 nginx、前端、后端和 Redis。浏览器和 nginx 使用同源 `/api`，nginx 将 `/api/` 转发到 `server:7020`，其余请求转发到 `web:3000`；只有 nginx 暴露 80 端口。`--env-file .env` 让 Compose 把前端的 `NEXT_PUBLIC_*` 作为构建参数注入镜像；修改这些公开变量后需要重新执行 `up --build`。后端容器会挂载根目录 `.env`，管理后台的 `.env` 编辑才会落盘并在重启后保留。前端容器不再接收完整的 `.env`，避免把 GitHub、AI 和管理后台密钥暴露给前端镜像。
