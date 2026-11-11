@@ -30,6 +30,8 @@ type GitHubService struct {
 	cfg             config.Config
 	cache           *cache.Store
 	client          *http.Client
+	apiBase         string
+	graphqlURL      string
 	displayMu       sync.RWMutex
 	featuredRepos   []string
 	hiddenRepoNames []string
@@ -37,10 +39,20 @@ type GitHubService struct {
 }
 
 func NewGitHubService(cfg config.Config, store *cache.Store) *GitHubService {
+	apiBase := strings.TrimRight(cfg.GitHubAPIBase, "/")
+	if apiBase == "" {
+		apiBase = githubAPI
+	}
+	graphqlURL := cfg.GitHubGraphQL
+	if graphqlURL == "" {
+		graphqlURL = githubGraphQLAPI
+	}
 	return &GitHubService{
 		cfg:             cfg,
 		cache:           store,
 		client:          &http.Client{Timeout: 12 * time.Second},
+		apiBase:         apiBase,
+		graphqlURL:      graphqlURL,
 		featuredRepos:   copyRepoNameList(cfg.FeaturedRepos),
 		hiddenRepoNames: copyRepoNameList(cfg.HiddenRepoNames),
 		hiddenRepos:     copyRepoNameMap(cfg.HiddenRepos),
@@ -308,7 +320,7 @@ func (s *GitHubService) CommitActivityDetail(ctx context.Context, date string, f
 	params.Set("per_page", fmt.Sprintf("%d", maxCommitDetailItems))
 
 	var search githubCommitSearchResponse
-	if err := s.getJSON(ctx, fmt.Sprintf("%s/search/commits?%s", githubAPI, params.Encode()), &search); err != nil {
+	if err := s.getJSON(ctx, fmt.Sprintf("%s/search/commits?%s", s.apiBase, params.Encode()), &search); err != nil {
 		return model.CommitActivityDetail{}, err
 	}
 
@@ -373,7 +385,7 @@ func (s *GitHubService) listRawRepos(ctx context.Context, force bool) ([]model.G
 		}
 	}
 
-	requestURL := fmt.Sprintf("%s/users/%s/repos?per_page=100&type=owner&sort=updated", githubAPI, url.PathEscape(s.cfg.GitHubUsername))
+	requestURL := fmt.Sprintf("%s/users/%s/repos?per_page=100&type=owner&sort=updated", s.apiBase, url.PathEscape(s.cfg.GitHubUsername))
 	var apiRepos []githubRepoResponse
 	if err := s.getJSON(ctx, requestURL, &apiRepos); err != nil {
 		return nil, err
@@ -407,7 +419,7 @@ func (s *GitHubService) repoLanguages(ctx context.Context, repoName string, forc
 		}
 	}
 
-	requestURL := fmt.Sprintf("%s/repos/%s/%s/languages", githubAPI, url.PathEscape(s.cfg.GitHubUsername), url.PathEscape(repoName))
+	requestURL := fmt.Sprintf("%s/repos/%s/%s/languages", s.apiBase, url.PathEscape(s.cfg.GitHubUsername), url.PathEscape(repoName))
 	languages := map[string]int64{}
 	if err := s.getJSON(ctx, requestURL, &languages); err != nil {
 		return nil, err
@@ -425,7 +437,7 @@ func (s *GitHubService) readme(ctx context.Context, repoName string, force bool)
 		}
 	}
 
-	requestURL := fmt.Sprintf("%s/repos/%s/%s/readme", githubAPI, url.PathEscape(s.cfg.GitHubUsername), url.PathEscape(repoName))
+	requestURL := fmt.Sprintf("%s/repos/%s/%s/readme", s.apiBase, url.PathEscape(s.cfg.GitHubUsername), url.PathEscape(repoName))
 	var payload struct {
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
@@ -484,7 +496,7 @@ func (s *GitHubService) postGraphQL(ctx context.Context, query string, variables
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, githubGraphQLAPI, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.graphqlURL, strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}

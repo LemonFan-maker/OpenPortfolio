@@ -11,6 +11,8 @@ import (
 type Config struct {
 	GitHubUsername  string
 	GitHubToken     string
+	GitHubAPIBase   string
+	GitHubGraphQL   string
 	FeaturedRepos   []string
 	HiddenRepoNames []string
 	HiddenRepos     map[string]bool
@@ -40,6 +42,8 @@ func Load() Config {
 	return Config{
 		GitHubUsername:  env("GITHUB_USERNAME", ""),
 		GitHubToken:     env("GITHUB_TOKEN", ""),
+		GitHubAPIBase:   strings.TrimRight(env("GITHUB_API_BASE_URL", ""), "/"),
+		GitHubGraphQL:   env("GITHUB_GRAPHQL_URL", ""),
 		FeaturedRepos:   ParseCSVList(env("FEATURED_REPOS", "")),
 		HiddenRepoNames: ParseCSVList(env("HIDDEN_REPOS", "")),
 		HiddenRepos:     parseCSVMap(env("HIDDEN_REPOS", "")),

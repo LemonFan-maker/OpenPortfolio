@@ -23,7 +23,9 @@ func projectSummaryStatus(aiService *service.AIService) gin.HandlerFunc {
 			return
 		}
 
-		summary, err := aiService.ProjectSummaryStatus(c.Request.Context(), req.RepoName, req.ForceRefresh)
+		// Public requests must never bypass the cache; only the admin debug
+		// endpoint is allowed to force regeneration.
+		summary, err := aiService.ProjectSummaryStatus(c.Request.Context(), req.RepoName, false)
 		if err != nil {
 			response.Error(c, http.StatusBadGateway, err.Error())
 			return
@@ -40,7 +42,9 @@ func siteSummary(aiService *service.AIService) gin.HandlerFunc {
 			return
 		}
 
-		summary, err := aiService.SiteSummary(c.Request.Context(), req.ForceRefresh)
+		// Public requests must never bypass the cache; only the admin debug
+		// endpoint is allowed to force regeneration.
+		summary, err := aiService.SiteSummary(c.Request.Context(), false)
 		if err != nil {
 			response.Error(c, http.StatusBadGateway, err.Error())
 			return

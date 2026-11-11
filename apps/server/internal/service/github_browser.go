@@ -40,7 +40,7 @@ func (s *GitHubService) RepoTree(ctx context.Context, repoName string, force boo
 	}
 
 	requestURL := fmt.Sprintf("%s/repos/%s/%s/git/trees/%s?recursive=1",
-		githubAPI,
+		s.apiBase,
 		url.PathEscape(s.cfg.GitHubUsername),
 		url.PathEscape(repoName),
 		url.PathEscape(branch),
@@ -230,7 +230,7 @@ func (s *GitHubService) readRepoFileContent(ctx context.Context, repoName string
 	}
 
 	requestURL := fmt.Sprintf("%s/repos/%s/%s/contents/%s",
-		githubAPI,
+		s.apiBase,
 		url.PathEscape(s.cfg.GitHubUsername),
 		url.PathEscape(repoName),
 		url.PathEscape(filePath),
@@ -270,7 +270,7 @@ func (s *GitHubService) readRepoBlobContent(ctx context.Context, repoName string
 	}
 
 	requestURL := fmt.Sprintf("%s/repos/%s/%s/git/blobs/%s",
-		githubAPI,
+		s.apiBase,
 		url.PathEscape(s.cfg.GitHubUsername),
 		url.PathEscape(repoName),
 		url.PathEscape(sha),
