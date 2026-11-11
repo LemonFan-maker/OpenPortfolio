@@ -1289,14 +1289,9 @@ func fallbackSummary(detail model.RepoDetail) model.ProjectSummary {
 	}
 }
 
-func readmeHash(readme string) string {
-	sum := sha1.Sum([]byte(readme))
-	return hex.EncodeToString(sum[:])[:12]
-}
-
 func trim(value string, max int) string {
 	if len(value) <= max {
 		return value
 	}
-	return value[:max]
+	return truncateUTF8(value, max)
 }

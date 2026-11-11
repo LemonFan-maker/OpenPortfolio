@@ -54,6 +54,9 @@ func TestTextTruncationKeepsValidUTF8(t *testing.T) {
 	if got := truncatePatch(patchInput); got != patchWant {
 		t.Errorf("truncatePatch = %q, want %q", got, patchWant)
 	}
+	if got, want := trim("项目", 4), "项"; got != want {
+		t.Errorf("trim = %q, want %q", got, want)
+	}
 }
 
 func TestRepoFileTruncationKeepsValidUTF8(t *testing.T) {
