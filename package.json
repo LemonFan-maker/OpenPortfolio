@@ -8,6 +8,7 @@
     "dev:web": "npm --workspace apps/web run dev",
     "build:web": "npm --workspace apps/web run build",
     "lint:web": "npm --workspace apps/web run lint",
+    "test:web": "npm --workspace apps/web run test",
     "dev:server": "cd apps/server && go run ./cmd/server",
     "test:server": "cd apps/server && go test ./...",
     "fmt:server": "cd apps/server && gofmt -w ./cmd ./internal"

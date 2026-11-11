@@ -57,7 +57,7 @@ func Load() Config {
 		RedisAddr:     env("REDIS_ADDR", "localhost:6379"),
 		RedisPassword: env("REDIS_PASSWORD", ""),
 		RedisDB:       envInt("REDIS_DB", 0),
-		ServerPort:    env("SERVER_PORT", "8080"),
+		ServerPort:    env("SERVER_PORT", "7020"),
 		WebOrigin:     env("WEB_ORIGIN", "http://localhost:3000"),
 	}
 }

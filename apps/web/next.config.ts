@@ -3,11 +3,25 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 loadRootEnv();
-process.env.NEXT_PUBLIC_SITE_NAME ??= process.env.SITE_NAME;
-process.env.NEXT_PUBLIC_SITE_DESCRIPTION ??= process.env.SITE_DESCRIPTION;
+if (!process.env.NEXT_PUBLIC_SITE_NAME?.trim() && process.env.SITE_NAME?.trim()) {
+  process.env.NEXT_PUBLIC_SITE_NAME = process.env.SITE_NAME;
+}
+if (!process.env.NEXT_PUBLIC_SITE_DESCRIPTION?.trim() && process.env.SITE_DESCRIPTION?.trim()) {
+  process.env.NEXT_PUBLIC_SITE_DESCRIPTION = process.env.SITE_DESCRIPTION;
+}
+
+const apiBaseURL = (process.env.API_BASE_URL ?? "http://localhost:7020").replace(/\/+$/, "");
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiBaseURL}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

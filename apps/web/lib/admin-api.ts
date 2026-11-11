@@ -1,6 +1,5 @@
 import type { ApiResponse, CacheOperationRecord, ProjectSummaryDebug } from "./types";
-
-const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+import { apiURL } from "./api-base";
 
 export type AdminActionResult = CacheOperationRecord;
 
@@ -138,7 +137,7 @@ async function adminFetch<T>(
   init: RequestInit & { token?: string } = {},
 ): Promise<T> {
   const { token, headers, ...rest } = init;
-  const res = await fetch(new URL(path, baseURL), {
+  const res = await fetch(apiURL(path), {
     ...rest,
     cache: "no-store",
     headers: {

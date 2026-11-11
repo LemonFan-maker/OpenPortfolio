@@ -8,45 +8,48 @@ import type {
   SiteSummaryStatus,
   RepoDetail,
 } from "./types";
-
-const baseURL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+import { apiURL } from "./api-base";
 
 export async function getProjects(params?: {
   sort?: string;
   language?: string;
   keyword?: string;
 }): Promise<ProjectCard[]> {
-  const url = new URL("/api/github/repos", baseURL);
+  const query = new URLSearchParams();
   Object.entries(params ?? {}).forEach(([key, value]) => {
     if (value) {
-      url.searchParams.set(key, value);
+      query.set(key, value);
     }
   });
 
-  return request<ProjectCard[]>(url, fallbackProjects);
+  const suffix = query.toString();
+  return request<ProjectCard[]>(
+    `${apiURL("/api/github/repos")}${suffix ? `?${suffix}` : ""}`,
+    fallbackProjects,
+  );
 }
 
 export async function getLanguageStats(): Promise<LanguageStats> {
-  return request<LanguageStats>(new URL("/api/github/languages", baseURL), {
+  return request<LanguageStats>(apiURL("/api/github/languages"), {
     totalBytes: fallbackLanguages.reduce((total, item) => total + item.bytes, 0),
     languages: fallbackLanguages,
   });
 }
 
 export async function getCommitActivity(): Promise<CommitActivity> {
-  return request<CommitActivity>(new URL("/api/github/activity", baseURL), fallbackActivity);
+  return request<CommitActivity>(apiURL("/api/github/activity"), fallbackActivity);
 }
 
 export async function getCommitActivityDetail(date: string): Promise<CommitActivityDetail | null> {
   return request<CommitActivityDetail | null>(
-    new URL(`/api/github/activity/${encodeURIComponent(date)}`, baseURL),
+    apiURL(`/api/github/activity/${encodeURIComponent(date)}`),
     null,
   );
 }
 
 export async function getProjectSummary(name: string): Promise<ProjectSummaryStatus | null> {
   return request<ProjectSummaryStatus | null>(
-    new URL("/api/ai/project-summary", baseURL),
+    apiURL("/api/ai/project-summary"),
     null,
     {
       body: JSON.stringify({ repoName: name, forceRefresh: false }),
@@ -58,7 +61,7 @@ export async function getProjectSummary(name: string): Promise<ProjectSummarySta
 
 export async function getSiteSummary(): Promise<SiteSummaryStatus | null> {
   return request<SiteSummaryStatus | null>(
-    new URL("/api/ai/site-summary", baseURL),
+    apiURL("/api/ai/site-summary"),
     null,
     {
       body: JSON.stringify({ forceRefresh: false }),
@@ -79,12 +82,12 @@ export async function getProject(name: string): Promise<RepoDetail | null> {
       }
     : null;
   return request<RepoDetail | null>(
-    new URL(`/api/github/repos/${encodeURIComponent(name)}`, baseURL),
+    apiURL(`/api/github/repos/${encodeURIComponent(name)}`),
     detailFallback,
   );
 }
 
-async function request<T>(url: URL, fallback: T, init: RequestInit = {}): Promise<T> {
+async function request<T>(url: string, fallback: T, init: RequestInit = {}): Promise<T> {
   try {
     const { headers, ...rest } = init;
     const res = await fetch(url, {

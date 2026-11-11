@@ -8,6 +8,7 @@ dev-web:
 
 test:
 	cd apps/server && go test ./...
+	npm --workspace apps/web run test
 	npm --workspace apps/web run lint
 
 fmt:
