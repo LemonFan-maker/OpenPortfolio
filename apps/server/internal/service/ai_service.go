@@ -13,6 +13,7 @@ import (
 	pathpkg "path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"portfolio-hub/apps/server/internal/cache"
@@ -25,16 +26,31 @@ type AIService struct {
 	cache  *cache.Store
 	github *GitHubService
 	client *http.Client
+
+	flights                   *flightGroup
+	projectSummaryConcurrency int
+	projectSummaryTimeout     time.Duration
+	siteSummaryTimeout        time.Duration
 }
+
+const (
+	defaultProjectSummaryConcurrency = 3
+	defaultProjectSummaryTimeout     = 3 * time.Minute
+	defaultSiteSummaryTimeout        = 3 * time.Minute
+)
 
 var errEmptyAIContent = errors.New("ai api returned empty message content")
 
 func NewAIService(cfg config.Config, store *cache.Store, github *GitHubService) *AIService {
 	return &AIService{
-		cfg:    cfg,
-		cache:  store,
-		github: github,
-		client: &http.Client{Timeout: 30 * time.Second},
+		cfg:                       cfg,
+		cache:                     store,
+		github:                    github,
+		client:                    &http.Client{Timeout: 30 * time.Second},
+		flights:                   newFlightGroup(),
+		projectSummaryConcurrency: defaultProjectSummaryConcurrency,
+		projectSummaryTimeout:     defaultProjectSummaryTimeout,
+		siteSummaryTimeout:        defaultSiteSummaryTimeout,
 	}
 }
 
@@ -88,6 +104,19 @@ type siteSummaryResult struct {
 }
 
 func (s *AIService) projectSummaryResult(ctx context.Context, repoName string, force bool) (projectSummaryResult, error) {
+	key := fmt.Sprintf("project:%s:%t", strings.ToLower(repoName), force)
+	return flightDo(s.flights, key, func() (projectSummaryResult, error) {
+		timeout := s.projectSummaryTimeout
+		if timeout <= 0 {
+			timeout = defaultProjectSummaryTimeout
+		}
+		generationCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return s.projectSummaryResultOnce(generationCtx, repoName, force)
+	})
+}
+
+func (s *AIService) projectSummaryResultOnce(ctx context.Context, repoName string, force bool) (projectSummaryResult, error) {
 	detail, err := s.github.RepoDetail(ctx, repoName, false)
 	if err != nil {
 		return projectSummaryResult{}, err
@@ -147,6 +176,19 @@ func (s *AIService) projectSummaryResult(ctx context.Context, repoName string, f
 }
 
 func (s *AIService) siteSummaryResult(ctx context.Context, force bool) (siteSummaryResult, error) {
+	key := fmt.Sprintf("site:%t", force)
+	return flightDo(s.flights, key, func() (siteSummaryResult, error) {
+		timeout := s.siteSummaryTimeout
+		if timeout <= 0 {
+			timeout = defaultSiteSummaryTimeout
+		}
+		generationCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return s.siteSummaryResultOnce(generationCtx, force)
+	})
+}
+
+func (s *AIService) siteSummaryResultOnce(ctx context.Context, force bool) (siteSummaryResult, error) {
 	createdAt := time.Now().UTC().Format(time.RFC3339)
 
 	projects, err := s.github.ListRepos(ctx, "stars", "", "", force)
@@ -257,11 +299,36 @@ type projectResumeItem struct {
 }
 
 func (s *AIService) collectProjectSummaries(ctx context.Context, projects []model.ProjectCard, force bool) ([]projectResumeItem, error) {
-	items := make([]projectResumeItem, 0, len(projects))
-	for _, project := range projects {
-		result, err := s.projectSummaryResult(ctx, project.Name, force)
-		if err != nil {
-			items = append(items, projectResumeItem{
+	items := make([]projectResumeItem, len(projects))
+	results := make([]projectSummaryResult, len(projects))
+	errs := make([]error, len(projects))
+
+	concurrency := s.projectSummaryConcurrency
+	if concurrency <= 0 {
+		concurrency = defaultProjectSummaryConcurrency
+	}
+
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for index := range projects {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				errs[index] = ctx.Err()
+				return
+			}
+			results[index], errs[index] = s.projectSummaryResult(ctx, projects[index].Name, force)
+		}(index)
+	}
+	wg.Wait()
+
+	for index, project := range projects {
+		if errs[index] != nil {
+			items[index] = projectResumeItem{
 				Name:        project.Name,
 				Description: project.Description,
 				Language:    project.Language,
@@ -270,10 +337,11 @@ func (s *AIService) collectProjectSummaries(ctx context.Context, projects []mode
 				UpdatedAt:   project.UpdatedAt,
 				Source:      "fallback",
 				Summary:     fallbackSummary(model.RepoDetail{Name: project.Name, Description: project.Description, Language: project.Language, Topics: project.Topics}),
-			})
+			}
 			continue
 		}
-		items = append(items, projectResumeItem{
+		result := results[index]
+		items[index] = projectResumeItem{
 			Name:        result.Debug.RepoName,
 			Description: result.Debug.Detail.Description,
 			Language:    result.Debug.Detail.Language,
@@ -282,7 +350,7 @@ func (s *AIService) collectProjectSummaries(ctx context.Context, projects []mode
 			UpdatedAt:   result.Debug.Detail.UpdatedAt,
 			Source:      result.Debug.Source,
 			Summary:     result.Summary,
-		})
+		}
 	}
 	return items, nil
 }
