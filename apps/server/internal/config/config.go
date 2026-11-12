@@ -12,7 +12,7 @@ const (
 	AIProviderOpenCode = "opencode"
 	AIProviderOpenAI   = "openai"
 
-	DefaultOpenCodeBaseURL = "https://opencode.ai/inference/openai/v1"
+	DefaultOpenCodeBaseURL = "https://opencode.ai/inference/go/openai/v1"
 	DefaultOpenAIBaseURL   = "https://api.openai.com/v1"
 
 	DefaultOpenCodeModel = "deepseek-v4.1-flash"

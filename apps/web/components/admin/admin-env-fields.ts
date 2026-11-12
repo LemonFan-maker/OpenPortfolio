@@ -67,7 +67,7 @@ export const envFieldLabels: Record<string, { label: string; hint: string }> = {
   HIDDEN_REPOS: { label: "隐藏项目", hint: "英文逗号分隔，不在前台展示这些仓库。" },
   AI_PROVIDER: { label: "AI 提供方", hint: "opencode（默认）或 openai；切换后需重启后端。" },
   OPENCODE_API_KEY: { label: "OpenCode API Key", hint: "OpenCode Go/Console 的 oc_sk_ 密钥，仅后端使用。" },
-  OPENCODE_BASE_URL: { label: "OpenCode Base URL", hint: "默认 https://opencode.ai/inference/openai/v1。" },
+  OPENCODE_BASE_URL: { label: "OpenCode Base URL", hint: "Go 订阅默认 https://opencode.ai/inference/go/openai/v1；不要使用按 Console 余额计费的 /inference/openai/v1。" },
   AI_API_KEY: { label: "OpenAI API Key（回退）", hint: "仅 AI_PROVIDER=openai 时使用，不会暴露给前端。" },
   AI_BASE_URL: { label: "OpenAI Base URL（回退）", hint: "旧 OpenAI 兼容接口地址。" },
   AI_MODEL: { label: "AI 模型", hint: "openai 默认 gpt-4o-mini；opencode 默认 deepseek-v4.1-flash。" },

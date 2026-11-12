@@ -110,7 +110,7 @@ npm run dev:web
 | `HIDDEN_REPOS` | 否 | 不展示的仓库名，逗号分隔。 |
 | `AI_PROVIDER` | 否 | AI 提供方：`opencode`（默认）或 `openai`。不会跨提供方自动回退。 |
 | `OPENCODE_API_KEY` | opencode 必填 | OpenCode Go/Console 的 API Key，通常以 `oc_sk_` 开头。 |
-| `OPENCODE_BASE_URL` | 否 | OpenCode OpenAI 兼容接口地址，默认 `https://opencode.ai/inference/openai/v1`。 |
+| `OPENCODE_BASE_URL` | 否 | OpenCode Go 的 OpenAI 兼容接口地址，默认 `https://opencode.ai/inference/go/openai/v1`。 |
 | `AI_API_KEY` | openai 必填 | 旧 OpenAI 兼容接口的 API Key。 |
 | `AI_BASE_URL` | 否 | 旧 OpenAI 兼容接口地址，默认 `https://api.openai.com/v1`。 |
 | `AI_MODEL` | 否 | AI 摘要使用的模型名；`opencode` 默认 `deepseek-v4.1-flash`，`openai` 默认 `gpt-4o-mini`。 |
@@ -137,6 +137,8 @@ npm run dev:web
 | `NEXT_PUBLIC_GITHUB_URL` | 否 | 前端导航中的 GitHub 链接。 |
 
 生产环境必须修改 `ADMIN_PASSWORD`、`JWT_SECRET`，并确保所有密钥只通过环境变量或密钥管理服务注入。若保留默认值或长度不足，管理后台登录和管理接口会返回 `503`，公开站点不受影响。
+
+> 使用 OpenCode Go 订阅时，`OPENCODE_BASE_URL` 必须指向 Go 端点 `https://opencode.ai/inference/go/openai/v1`。旧的 `https://opencode.ai/inference/openai/v1` 会按 Console 余额计费；余额为 0 时返回 `402 Insufficient balance`，即使 Go 订阅仍然有效。
 
 ### 管理后台鉴权
 

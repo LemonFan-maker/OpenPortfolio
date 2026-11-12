@@ -276,3 +276,18 @@ func TestProjectSummaryReusesOpenCodeSessionAcrossTurns(t *testing.T) {
 		t.Fatalf("sessions = %#v, want one stable conversation id", sessions)
 	}
 }
+
+func TestOpenCodeDefaultsToGoEndpoint(t *testing.T) {
+	service := newProviderTestService(config.Config{
+		AIProvider:     config.AIProviderOpenCode,
+		OpenCodeAPIKey: "oc_sk_test",
+	})
+
+	settings, err := service.aiSettings()
+	if err != nil {
+		t.Fatalf("aiSettings: %v", err)
+	}
+	if settings.baseURL != "https://opencode.ai/inference/go/openai/v1" {
+		t.Fatalf("baseURL = %q, want OpenCode Go endpoint", settings.baseURL)
+	}
+}
